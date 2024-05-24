@@ -1,0 +1,170 @@
+---
+title: "Statistics_Group"
+author: "Aulia Dini Rafsanjani"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+### Goal
+
+The goal of this document is to provide the summary statistics as a part of statistics group discussion. We provided the descriptive statistics of heart rate data that we got from participants. The descriptive statistics includes :
+
+1. Data dimension, duration of wearing device in days and hours. 
+
+2. Summary statistics of RR
+
+3. Percentage of flags provided by the device. 
+
+4. Plot from each participant. 
+
+### Data structure
+
+The data has two variable : Time and R-R interval. 
+
+The data covered nine participant. 
+
+The data covered observation from seven days recording. Some participants have a break-off because of irritation and device issue. 
+
+### Link to statistics group manuscript
+
+https://docs.google.com/document/d/1Q1r4xX8rZGfGTwUjeTDKml9DDDBJ7Vi8/edit?usp=sharing&ouid=111075353933698324521&rtpof=true&sd=true
+
+### Library
+
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+```
+
+### Overall summary statistics
+
+```{r}
+# Define directory and file list
+directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+
+file_list <- c(
+  "testben1_ADVHRV_2024-02-02_1244.txt",
+  "testdini1_ADVHRV_20240112.txt", 
+  "testamanda1_ADVHRV_2024-01-26.txt",
+  "testjenny1_ADVHRV_2024-01-12.txt",
+  "testkaris1_ADVHRV_2024-01-26.txt",
+  "testmary1_ADVHRV_2024-01-12.txt",
+  "testneil1_ADVHRV_2024-01-15.txt",
+  "test190031_ADVHRV_2024-05-07.txt", 
+  "test867601_ADVHRV_2024-05-07.txt"
+)
+
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+result_df3 <- data.frame()
+plots_list <- list()
+
+for (file in file_list) {
+  
+  # File path
+  full_file_path <- file.path(directory, file)
+  
+  # Read the CSV file
+  data <- fread(full_file_path, sep = "\t")
+  
+  # Change column name
+  colnames(data)[4] <- "category"
+  
+  # Create table of category percentages
+  table1 <- data %>%
+    summarise(count = n(), 
+              time_days = round((max(Time)/(1000*86400)),1), # duration in days
+              time_hours = round((max(Time)/(1000*3600)),1)) %>% # duration in hours
+    mutate(data_name = gsub("\\..*$", "", file))
+  
+  
+  # Create table of RR summary (in seconds)
+  table2 <- data %>%
+    summarise(minimum = round((min(RR)/1000),2),
+              q1 = round((quantile(RR, 0.25)/1000),2),
+              median = round((median(RR)/1000),2),
+              q3 = round((quantile(RR, 0.75)/1000),2),
+              maximum = round((max(RR)/1000),2), 
+              mean = round((mean(RR)/1000),2), 
+              sd = round((((sd(RR))/1000)),2)) %>%
+    mutate(data_name = gsub("\\..*$", "", file))
+  
+  # Create table of category percentages # interest is in category U and I
+  table3 <- data %>%
+    group_by(category) %>%
+    summarize(percentage =round((n() / nrow(data) * 100),3)) %>%
+    mutate(data_name = gsub("\\..*$", "", file))
+  
+  # Create a line plot for each file
+  plot <- ggplot(data = data, aes(x = Time, y = RR)) +
+    geom_line() +  
+    labs(x = "Time", y = "RR") +  # Label x and y axes
+    ggtitle(paste("Heart Rate vs. Time -", gsub("\\..*$", "", file))) +  
+    theme_minimal()  
+  
+  # Append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+  result_df3 <- bind_rows(result_df3, table3)
+  
+  # Store the plot in the list
+  plots_list[[file]] <- plot
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", "count", "time_days", "time_hours")]
+result_df1
+
+result_df2 <- result_df2[, c("data_name", "minimum", "q1", "median", "q3", "maximum", "mean", "sd")]
+result_df2
+
+result_df3 <- result_df3[, c("data_name", "category", "percentage")]
+wide_result_df3 <- pivot_wider(result_df3, names_from = category, values_from = percentage)
+colnames(wide_result_df3)[2:ncol(wide_result_df3)] <- paste0("Percent ", colnames(wide_result_df3)[2:ncol(wide_result_df3)])
+wide_result_df3
+
+plots_list
+```
+```{r}
+# change the data name
+# result_df <- result_df %>%
+#   mutate(data_id = case_when(
+#     data_name == "testben1_ADVHRV_2024-02-02_1244" ~ "1",
+#     data_name == "testdini1_ADVHRV_20240112" ~ "2",
+#     data_name == "testamanda1_ADVHRV_2024-01-26" ~ "3",
+#     data_name == "testjenny1_ADVHRV_2024-01-12" ~ "4",
+#     data_name == "testkaris1_ADVHRV_2024-01-26" ~ "5",
+#     data_name == "testmary1_ADVHRV_2024-01-12" ~ "6",
+#     data_name == "testneil1_ADVHRV_2024-01-15" ~ "7",
+#     data_name == "test190031_ADVHRV_2024-05-07" ~ "8",
+#     data_name == "test867601_ADVHRV_2024-05-07" ~ "9",
+#     TRUE ~ data_name  
+#   ))
+# 
+# head(result_df)
+# 
+# result_df <- result_df[, c("data_name", "data_id", "minimum", "q1", "median", "q3", "maximum", "mean", "sd")]
+# 
+# print(result_df[,2:9])
+```
+
+```{r}
+# Save plots as JPEG files
+# for (file_name in names(plots_list)) {
+#   jpeg(file.path(directory, paste0(gsub("\\..*$", "", file_name), ".jpeg")))
+#   print(plots_list[[file_name]])
+#   dev.off()
+# }
+```
+
+### Further work :
+
+1. Check the naming format in the O: drive. 
+
+2. Create code to access the data based on each folder name and file name. 
