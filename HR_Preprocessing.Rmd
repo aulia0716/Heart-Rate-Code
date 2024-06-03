@@ -31,6 +31,16 @@ Benchekroun M, Chevallier B, Istrate D, Zalc V, Lenne D. Preprocessing Methods f
 
 1. Compute correlation between the artifacts from paper and time-of-day (trend for each day). 
 
+### Meeting on June 3rd, 2024
+
+Create the additional condition of the filtering loop :
+
+1. If the final RR > 1.3 s, delete it --> To handle the issue from Mary and Ben data. 
+
+2. If the final RR is within the accepted range of 0.3s - 1.3s, leave it as it is. 
+
+3. If the final RR < 0.3s, do left merge only. If the result of the left merge is <0.3s, do left merge again. If the result of left merge > 1.3 s, remove it. --> To handle the issue from Marie-Anne data. 
+
 ### Library
 
 ```{r}
@@ -830,7 +840,7 @@ plot_list
 
 ### Filtering
 
-### Filtering 2 (Revised)
+### Filtering 2 (Revised) --> Presented in the meeting on Friday May 24th, 2024. 
 
 ```{r}
 library(dplyr)
@@ -856,7 +866,7 @@ for (i in 1:(nrow(df)-1)) {
       RR_r <- df$RR[i] + df$RR[i+1]
       ER_r <- abs((RR_r - df$RR[i]) / df$RR[i])
       ER_l <- abs((RR_r - df$RR[i-1]) / df$RR[i-1])
-      E_tot_r <- if (!is.na(E_r) && !is.na(E_l)) ER_r + ER_l else NA
+      E_tot_r <- if (!is.na(ER_r) && !is.na(ER_l)) ER_r + ER_l else NA
       E_10 <- compute_E_10(df,i)
    
     #  if RR_r < 1.3s and ER_l <= E_10 and ER_r <= E_10 then 
@@ -950,246 +960,339 @@ print(dim(data_original))
 print(summary(data_original$Time))
 print(summary(data_original$RR)) 
 table(data_original$RR<300)
+table(data_original$RR>1300)
 
 # after filtering
 print(dim(data_filtered))
 print(summary(data_filtered$Time))
 print(summary(data_filtered$RR)) 
+table(data_filtered$RR<300)
+table(data_filtered$RR>1300)
 
 # check dimension before and after filtering
 dim(data_original)-dim(data_filtered)
 ```
-```{r}
-# compute the difference
-825-788 # 37
-```
-```{r}
-table(data_original$RR<300)
-table(data_original$RR>1300)
-```
-```{r}
-table(data_filtered$RR<300)
-table(data_filtered$RR>1300)
-```
-```{r}
-dim(data_original)-dim(data_filtered)
-```
 
+Findings based on meeting May 24, 2024: 
 
+- The filtered dataset shows that the observation is within range of < 0.3 s. However, we still have 18999 observation that is > 1.3s. 
 
+- We need to add more conditions : If RR > 1.3 s, remove the RR and its timestamps (based on paper flowchart page 5). 
 
+### Filtering 3 (Revised) --> Presented in the meeting on June 3, 2024
 
-Findings: 
+- After discussion with Konstantinos, we found that all RR > 1.3 should be removed in the first place. 
 
-- The filtered dataset shows the minimum RR of 304.07. It means that there is not any artifacts with value < 0.3 s anymore. 
+- Therefore, I add one more condition which is for RR > 1.3 s, remove the RR and its timestamps. 
 
-- However, the here are 37 observations that still not filtered --> Need to debugging the code again. 
-
-- Check the data result for the 37 observation only. 
+- In addition, I also change the `for` loop to `while` because some RR is missed if we used `for` function. 
 
 ```{r}
-artifacts_original <- subset(data_original, RR < 300)
-dim(artifacts_original)
-```
+library(dplyr)
 
-```{r}
-filtered_out_ids <- data_original %>%
-  filter(!No %in% data_filtered$No) %>%
-  select(No)
-dim(filtered_out_ids)
-```
-
-```{r}
-artifacts_missing <- artifacts_original %>%
-  filter(!No %in% filtered_out_ids$No) %>%
-  select(No)
-dim(artifacts_missing) #why 38 not 37?
-```
-```{r}
-# Ensure both are data.tables
-setDT(filtered_out_ids)
-setDT(artifacts_missing)
-
-# Identify duplicated IDs
-duplicated_ids <- filtered_out_ids[No %in% artifacts_missing$No, No]
-
-# Check if there are any duplicated IDs and print the result
-if (length(duplicated_ids) > 0) {
-  cat("Duplicated IDs:\n")
-  print(duplicated_ids)
-} else {
-  cat("No duplicated IDs found.")
-}
-```
-
-```{r}
-# Assuming data1 and data2 are your data frames and ID is the column name for the IDs
-
-# Extracting IDs from both datasets
-ids_data1 <- data_original$No
-ids_data2 <- data_filtered$No
-
-# Finding the IDs that are in data1 but not in data2
-missing_ids <- setdiff(ids_data1, ids_data2)
-
-# Checking the dimensions
-dim_data1 <- length(ids_data1)
-dim_data2 <- length(ids_data2)
-dim_missing <- length(missing_ids)
-
-# Printing the dimensions
-cat("Dimension of data1 IDs:", dim_data1, "\n")
-cat("Dimension of data2 IDs:", dim_data2, "\n")
-cat("Dimension of missing IDs:", dim_missing, "\n")
-
-# Printing the missing IDs
-cat("Missing IDs:\n")
-print(missing_ids)
-
-# Check if there are duplicate IDs in data1
-duplicate_ids_data1 <- ids_data1[duplicated(ids_data1)]
-if(length(duplicate_ids_data1) > 0) {
-  cat("Duplicate IDs in data1:\n")
-  print(unique(duplicate_ids_data1))
-} else {
-  cat("No duplicate IDs in data1.\n")
-}
-
-# Check if there are duplicate IDs in data2
-duplicate_ids_data2 <- ids_data2[duplicated(ids_data2)]
-if(length(duplicate_ids_data2) > 0) {
-  cat("Duplicate IDs in data2:\n")
-  print(unique(duplicate_ids_data2))
-} else {
-  cat("No duplicate IDs in data2.\n")
-}
-
-```
-
-```{r}
-# Assuming data1 and data2 are your data frames and ID is the column name for the IDs
-
-# Extracting IDs from both datasets
-ids_data1 <- artifacts_original$No
-ids_data2 <- filtered_out_ids$No
-
-# Finding the IDs that are in data1 but not in data2
-missing_ids <- setdiff(ids_data1, ids_data2)
-
-# Checking the dimensions
-dim_data1 <- length(ids_data1)
-dim_data2 <- length(ids_data2)
-dim_missing <- length(missing_ids)
-
-# Printing the dimensions
-cat("Dimension of data1 IDs:", dim_data1, "\n")
-cat("Dimension of data2 IDs:", dim_data2, "\n")
-cat("Dimension of missing IDs:", dim_missing, "\n")
-
-# Printing the missing IDs
-cat("Missing IDs:\n")
-print(missing_ids)
-
-# Check if there are duplicate IDs in data1
-duplicate_ids_data1 <- ids_data1[duplicated(ids_data1)]
-if(length(duplicate_ids_data1) > 0) {
-  cat("Duplicate IDs in data1:\n")
-  print(unique(duplicate_ids_data1))
-} else {
-  cat("No duplicate IDs in data1.\n")
-}
-
-# Check if there are duplicate IDs in data2
-duplicate_ids_data2 <- ids_data2[duplicated(ids_data2)]
-if(length(duplicate_ids_data2) > 0) {
-  cat("Duplicate IDs in data2:\n")
-  print(unique(duplicate_ids_data2))
-} else {
-  cat("No duplicate IDs in data2.\n")
+filtering <- function(df) {
+  
+  # Convert RR to seconds
+  df <- df %>% mutate(RR = RR / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Process the data
+  # set the starting point
+  i <- 1
+  while (i < nrow(df)) {
+    
+    # If RR > 1.3 s, then remove RR_i and its timestamp
+    # this is the new condition
+    if (!is.na(df$RR[i]) && df$RR[i] > 1.3) {
+      df <- df[-i, ]
+      next
+    }
+    
+    # if RR < 0.3s, then do all the merging process
+    if (!is.na(df$RR[i]) && df$RR[i] < 0.3) {
+      if (i + 1 > nrow(df)) break
+      RR_r <- df$RR[i] + df$RR[i + 1]
+      ER_r <- abs((RR_r - df$RR[i]) / df$RR[i])
+      ER_l <- abs((RR_r - df$RR[i - 1]) / df$RR[i - 1])
+      E_tot_r <- if (!is.na(ER_r) && !is.na(ER_l)) ER_r + ER_l else NA
+      E_10 <- compute_E_10(df, i)
+      
+      # If RR_r < 1.3s and ER_l <= E_10 and ER_r <= E_10 then 
+      # do right merge, replace RR_i+1 by RR_r and delete RR_i and its timestamp
+      if (!is.na(RR_r) && !is.na(ER_r) && !is.na(ER_l) && !is.na(E_10) && RR_r < 1.3 && ER_l <= E_10 && ER_r <= E_10) {
+        df$RR[i + 1] <- RR_r
+        df <- df[-i, ]
+        next
+      } else {
+        if (i - 1 < 1) break
+        RR_l <- df$RR[i] + df$RR[i - 1]
+        EL_r <- abs((RR_l - df$RR[i]) / df$RR[i])
+        EL_l <- abs((RR_l - df$RR[i - 1]) / df$RR[i - 1])
+        E_tot_l <- if (!is.na(EL_r) && !is.na(EL_l)) EL_r + EL_l else NA
+        E_10_prev <- compute_E_10(df, i - 1)
+        
+        # If RR_l < 1.3 s and EL_l <= E10 and EL_r <= E_10 then 
+        # left merge, replace RR_i by RR_l and delete RR_i-1 and its timestamp
+        if (!is.na(RR_l) && !is.na(EL_l) && !is.na(EL_r) && !is.na(E_10_prev) && RR_l < 1.3 && EL_l <= E_10_prev && EL_r <= E_10_prev) {
+          df$RR[i - 1] <- RR_l
+          df <- df[-i, ]
+          next
+        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l > 1.3) {
+          if (i + 1 <= nrow(df)) {
+            df <- df[-c(i, i + 1), ]
+          } else {
+            df <- df[-i, ]
+          }
+          next
+        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r < 1.3 && RR_l > 1.3) {
+          df$RR[i + 1] <- RR_r
+          df <- df[-i, ]
+          next
+        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l < 1.3) {
+          df$RR[i - 1] <- RR_l
+          df <- df[-i, ]
+          next
+        } else if (!is.na(RR_l) && !is.na(RR_r) && !is.na(E_tot_r) && !is.na(E_tot_l) && RR_l < 1.3 && RR_r < 1.3 && E_tot_r > 0.4 && E_tot_l > 0.4) {
+          if (E_tot_r < E_tot_l) {
+            df$RR[i + 1] <- RR_r
+            df <- df[-i, ]
+          } else {
+            df$RR[i - 1] <- RR_l
+            df <- df[-i, ]
+          }
+          next
+        }
+      }
+    }
+    # restate the iteration
+    i <- i + 1
+  }
+  
+  df <- df %>% mutate(RR = RR * 1000)
+  
+  return(df)
 }
 
 ```
 
-```{r}
-# Ensure both are data.tables
-setDT(data_original)
-setDT(artifacts_missing)
-
-# Extract rows based on the list of IDs
-extracted_df_ori <- data_original[No %in% artifacts_missing$No]
-
-# Display dimensions of the extracted data frame
-dim(extracted_df_ori)
-```
-
-```{r}
-# Ensure both are data.tables
-setDT(data_filtered)
-setDT(artifacts_missing)
-
-# Extract rows based on the list of IDs
-extracted_df_filt <- data_filtered[No %in% artifacts_missing$No]
-
-# Display dimensions of the extracted data frame
-dim(extracted_df_filt)
-```
-
-```{r}
-View(extracted_df_filt)
-```
-
-### Next : I need to check the data condition for other participant, especially the real participant. 
-
-
-### Next step 
-
-- Clarify the naming format of folder and file, edit the code especially about accessing the file. 
-
-- Finish the filtering. 
-
-
-### Side note --> This is unused code, but may need to use that in other time, so I keep it. 
+### Test data
 
 ```{r}
 directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
 
-file_list <- c("testben1_ADVHRV_2024-02-02_1244.txt")
+file <- c("testben1_ADVHRV_2024-02-02_1244.txt")
 
-# File path
-full_file_path <- file.path(directory, file_list)
+#  file path
+full_file_path <- file.path(directory, file)
   
 # Read the CSV file
-data <- fread(full_file_path, sep = "\t")
+data_original <- data.table::fread(full_file_path, sep = "\t")
   
-# Change column name
-colnames(data)[4] <- "category"
+# change column name
+colnames(data_original)[4] <- "conv_type"
 ```
 
 ```{r}
-data$RR_second <- data$RR/1000
+# apply the helper function to one dataset
+data_filtered<- filtering(data_original) 
 ```
 
 ```{r}
-data$dummy_thres <- ifelse(data$RR_second < 0.3 | data$RR_second > 1.3, 1, 0)
+# check the result
+# before filtering
+print(dim(data_original))
+print(summary(data_original$Time))
+print(summary(data_original$RR)) 
+table(data_original$RR<300)
+table(data_original$RR>1300)
+
+# after filtering
+print(dim(data_filtered))
+print(summary(data_filtered$Time))
+print(summary(data_filtered$RR)) 
+table(data_filtered$RR<300)
+table(data_filtered$RR>1300)
+
+# check dimension before and after filtering
+dim(data_original)-dim(data_filtered)
 ```
 
 ```{r}
-data$dummy_device <- ifelse(data$category=="U" | data$category=="|", 1, 0)
+extract1 <- subset(data_filtered, RR>1300)
+dim(extract1)
+```
+
+
+```{r}
+View(extract1)
+```
+
+Findings :
+
+- The data from Ben shows that there is one observation that is above the range (>1.3s). 
+
+- After checking, the one observation refers to the last observation, which not covered by the loop. 
+
+### Apply to other datasets
+
+```{r}
+# Define directory and file list
+directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+file_list <- c(
+  "testben1_ADVHRV_2024-02-02_1244.txt",
+  "testdini1_ADVHRV_20240112.txt", 
+  "testamanda1_ADVHRV_2024-01-26.txt",
+  "testjenny1_ADVHRV_2024-01-12.txt",
+  "testkaris1_ADVHRV_2024-01-26.txt",
+  "testmary1_ADVHRV_2024-01-12.txt",
+  "testneil1_ADVHRV_2024-01-15.txt",
+  "test190031_ADVHRV_2024-05-07.txt", 
+  "test867601_ADVHRV_2024-05-07.txt"
+)
+
+# Loop through each file, apply the filtering function, and save the results
+for (file_name in file_list) {
+  # Construct the full file path
+  file_path <- file.path(directory, file_name)
+  
+  # Read the data
+  df <- data.table::fread(file_path, sep = "\t")
+  
+  # Apply the filtering function
+  filtered_df <- filtering(df)
+  
+  # Construct the output file name
+  output_file_name <- paste0("filtered_", file_name)
+  output_file_path <- file.path(directory, output_file_name)
+  
+  # Save the filtered data
+  write.table(filtered_df, file = output_file_path, sep = "\t", row.names = FALSE)
+  
+  # Print the summary
+  print(paste("Summary for:", output_file_name))
+  print(dim(filtered_df))
+  print(summary(filtered_df$Time))
+  print(summary(filtered_df$RR))
+  print(table(filtered_df$RR < 300))
+  print(table(filtered_df$RR > 1300))
+  cat("\n")
+}
+```
+
+### Check the detail data for Marie-Anne
+
+```{r}
+directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+
+file <- c("test190031_ADVHRV_2024-05-07.txt")
+
+#  file path
+full_file_path <- file.path(directory, file)
+  
+# Read the CSV file
+data_original <- data.table::fread(full_file_path, sep = "\t")
+  
+# change column name
+colnames(data_original)[4] <- "conv_type"
 ```
 
 ```{r}
-data$dummy_both <- ifelse(data$dummy_device==1 & data$dummy_thres==1, 1, 0)
+# apply the helper function to one dataset
+data_filtered<- filtering(data_original) 
 ```
 
 ```{r}
-data %>%
-  summarise(count_paper = sum(dummy_thres==1),
-            count_device = sum(dummy_device==1), 
-            count_overlap = sum(dummy_both==1),
-            percent_paper = round((mean(dummy_thres) * 100),2),
-            percent_device = round((mean(dummy_device) * 100),2), 
-            percent_overlap = round((mean(dummy_both) * 100),2)
-            )
+# check the result
+# before filtering
+print(dim(data_original))
+print(summary(data_original$Time))
+print(summary(data_original$RR)) 
+table(data_original$RR<300)
+table(data_original$RR>1300)
+
+# after filtering
+print(dim(data_filtered))
+print(summary(data_filtered$Time))
+print(summary(data_filtered$RR)) 
+table(data_filtered$RR<300)
+table(data_filtered$RR>1300)
+
+# check dimension before and after filtering
+dim(data_original)-dim(data_filtered)
+```
+
+```{r}
+extract2 <- subset(data_filtered, RR<300)
+dim(extract2)
+```
+
+```{r}
+View(extract2)
+```
+
+Finding :
+
+- Among 9 participants, the code is successfully working for 6 participants. Success means that the result of RR is higher than 300 and lower than 1300. 
+
+- There are 3 participants still have the maximum and/or minimum value that is beyond the threshold. Ben and Mary still have observation > 1.3s and Marie-Anne has the observation <0.3s. All observation refers to the last observation that is not covered by the condition of the loop. 
+
+### Next step 
+
+- Create the additional condition of the loop :
+
+1. If the final RR > 1.3 s, delete it --> To handle the issue from Mary and Ben. 
+
+2. If the final RR is within the accepted range of 0.3s - 1.3s, leave it as it is. 
+
+3. If the final RR < 0.3s, do left merge only. If the result of the left merge is <0.3s, do left merge again. If the result of left merge > 1.3 s, remove it. --> To handle the issue from Marie-Anne data. 
+
+### Side note --> This is unused code, but I may need to use that in other time, so I keep it. 
+
+```{r}
+# directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+# 
+# file_list <- c("testben1_ADVHRV_2024-02-02_1244.txt")
+# 
+# # File path
+# full_file_path <- file.path(directory, file_list)
+#   
+# # Read the CSV file
+# data <- fread(full_file_path, sep = "\t")
+#   
+# # Change column name
+# colnames(data)[4] <- "category"
+```
+
+```{r}
+# data$RR_second <- data$RR/1000
+```
+
+```{r}
+# data$dummy_thres <- ifelse(data$RR_second < 0.3 | data$RR_second > 1.3, 1, 0)
+```
+
+```{r}
+# data$dummy_device <- ifelse(data$category=="U" | data$category=="|", 1, 0)
+```
+
+```{r}
+# data$dummy_both <- ifelse(data$dummy_device==1 & data$dummy_thres==1, 1, 0)
+```
+
+```{r}
+# data %>%
+#   summarise(count_paper = sum(dummy_thres==1),
+#             count_device = sum(dummy_device==1), 
+#             count_overlap = sum(dummy_both==1),
+#             percent_paper = round((mean(dummy_thres) * 100),2),
+#             percent_device = round((mean(dummy_device) * 100),2), 
+#             percent_overlap = round((mean(dummy_both) * 100),2)
+#             )
 ```
 
 ### Side note 2
@@ -1197,186 +1300,186 @@ data %>%
 ### Follow up: Compute correlation of time-of-day and artifacts from paper. (Individual Code)
 
 ```{r}
-directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
-
-file_list <- c("test867601_ADVHRV_2024-05-07.txt")
-
-# File path
-full_file_path <- file.path(directory, file_list)
-  
-# Read the CSV file
-data <- fread(full_file_path, sep = "\t")
-  
-# Change column name
-colnames(data)[4] <- "category"
-
-# library
-library(data.table)
-library(lubridate)
-
-# define initial time
-initial_time <- "15:58:52"
-
-# define the start time
-start_time <- as.POSIXct(initial_time, format = "%H:%M:%S")
-
-# convert cumulative time and RR in milliseconds to seconds
-data$time_seconds <- as.numeric(data$Time) / 1000
-
-# convert RR into seconds
-data$RR_second = data$RR / 1000
-
-# calculate the clock time
-data$clock_time <- start_time + data$time_seconds
-
-# Extract the time part (HH:MM:SS) from Clock_time
-data$time_only <- format(data$clock_time, format = "%H:%M:%S")
-
-# categorize the time_only
-data$cat_time <- fifelse(data$time_only >= "00:00:00" & data$time_only < "04:00:00", 1,
-                   fifelse(data$time_only >= "04:00:00" & data$time_only < "08:00:00", 2,
-                   fifelse(data$time_only >= "08:00:00" & data$time_only < "12:00:00", 3,
-                   fifelse(data$time_only >= "12:00:00" & data$time_only < "16:00:00", 4,
-                   fifelse(data$time_only >= "16:00:00" & data$time_only < "20:00:00", 5,
-                   fifelse(data$time_only >= "20:00:00" & data$time_only < "24:00:00", 6, NA))))))
-
-# categorize the artifacts based on threshold < 0.3 s and > 1.3 s
-data$dummy_thres <- ifelse(data$RR_second < 0.3 | data$RR_second > 1.3, 1, 0) 
-
-# Display the updated data
-head(data, 100)
-
-# summary of artifacts for each time window
-result <- data %>%
-  group_by(cat_time) %>%
-  summarise(count_artifacts = sum(dummy_thres), 
-            percent_artifacts = round((count_artifacts / sum(data$dummy_thres) * 100),2)
-            )
-
-print(result)
+# directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+# 
+# file_list <- c("test867601_ADVHRV_2024-05-07.txt")
+# 
+# # File path
+# full_file_path <- file.path(directory, file_list)
+#   
+# # Read the CSV file
+# data <- fread(full_file_path, sep = "\t")
+#   
+# # Change column name
+# colnames(data)[4] <- "category"
+# 
+# # library
+# library(data.table)
+# library(lubridate)
+# 
+# # define initial time
+# initial_time <- "15:58:52"
+# 
+# # define the start time
+# start_time <- as.POSIXct(initial_time, format = "%H:%M:%S")
+# 
+# # convert cumulative time and RR in milliseconds to seconds
+# data$time_seconds <- as.numeric(data$Time) / 1000
+# 
+# # convert RR into seconds
+# data$RR_second = data$RR / 1000
+# 
+# # calculate the clock time
+# data$clock_time <- start_time + data$time_seconds
+# 
+# # Extract the time part (HH:MM:SS) from Clock_time
+# data$time_only <- format(data$clock_time, format = "%H:%M:%S")
+# 
+# # categorize the time_only
+# data$cat_time <- fifelse(data$time_only >= "00:00:00" & data$time_only < "04:00:00", 1,
+#                    fifelse(data$time_only >= "04:00:00" & data$time_only < "08:00:00", 2,
+#                    fifelse(data$time_only >= "08:00:00" & data$time_only < "12:00:00", 3,
+#                    fifelse(data$time_only >= "12:00:00" & data$time_only < "16:00:00", 4,
+#                    fifelse(data$time_only >= "16:00:00" & data$time_only < "20:00:00", 5,
+#                    fifelse(data$time_only >= "20:00:00" & data$time_only < "24:00:00", 6, NA))))))
+# 
+# # categorize the artifacts based on threshold < 0.3 s and > 1.3 s
+# data$dummy_thres <- ifelse(data$RR_second < 0.3 | data$RR_second > 1.3, 1, 0) 
+# 
+# # Display the updated data
+# head(data, 100)
+# 
+# # summary of artifacts for each time window
+# result <- data %>%
+#   group_by(cat_time) %>%
+#   summarise(count_artifacts = sum(dummy_thres), 
+#             percent_artifacts = round((count_artifacts / sum(data$dummy_thres) * 100),2)
+#             )
+# 
+# print(result)
 ```
 ### Archive
 
 ### Create helper function
 
 ```{r}
-library(data.table)
-library(lubridate)
-library(dplyr)
-
-# Define the helper function
-process_data <- function(data, initial_time) {
-  # Convert the initial time to a POSIXct object
-  start_time <- ymd_hms(initial_time)
-  
-  # Convert cumulative time and RR in milliseconds to seconds
-  data[, time_seconds := Time / 1000]
-  data[, RR_second := RR / 1000]
-  
-  # Calculate the clock time
-  data[, clock_time := start_time + seconds(time_seconds)]
-  
-  # Extract the time part (HH:MM:SS) from clock_time
-  data[, time_only := format(clock_time, format = "%H:%M:%S")]
-  
-  # Categorize the time_only
-  data[, cat_time := fifelse(time_only >= "00:00:00" & time_only < "04:00:00", 1,
-                      fifelse(time_only >= "04:00:00" & time_only < "08:00:00", 2,
-                      fifelse(time_only >= "08:00:00" & time_only < "12:00:00", 3,
-                      fifelse(time_only >= "12:00:00" & time_only < "16:00:00", 4,
-                      fifelse(time_only >= "16:00:00" & time_only < "20:00:00", 5,
-                      fifelse(time_only >= "20:00:00" & time_only < "24:00:00", 6, NA))))))]
-  
-  # Categorize the artifacts based on threshold < 0.3 s and > 1.3 s
-  data[, dummy_thres := ifelse(RR_second < 0.3 | RR_second > 1.3, 1, 0)]
-  
-  return(data)
-}
+# library(data.table)
+# library(lubridate)
+# library(dplyr)
+# 
+# # Define the helper function
+# process_data <- function(data, initial_time) {
+#   # Convert the initial time to a POSIXct object
+#   start_time <- ymd_hms(initial_time)
+#   
+#   # Convert cumulative time and RR in milliseconds to seconds
+#   data[, time_seconds := Time / 1000]
+#   data[, RR_second := RR / 1000]
+#   
+#   # Calculate the clock time
+#   data[, clock_time := start_time + seconds(time_seconds)]
+#   
+#   # Extract the time part (HH:MM:SS) from clock_time
+#   data[, time_only := format(clock_time, format = "%H:%M:%S")]
+#   
+#   # Categorize the time_only
+#   data[, cat_time := fifelse(time_only >= "00:00:00" & time_only < "04:00:00", 1,
+#                       fifelse(time_only >= "04:00:00" & time_only < "08:00:00", 2,
+#                       fifelse(time_only >= "08:00:00" & time_only < "12:00:00", 3,
+#                       fifelse(time_only >= "12:00:00" & time_only < "16:00:00", 4,
+#                       fifelse(time_only >= "16:00:00" & time_only < "20:00:00", 5,
+#                       fifelse(time_only >= "20:00:00" & time_only < "24:00:00", 6, NA))))))]
+#   
+#   # Categorize the artifacts based on threshold < 0.3 s and > 1.3 s
+#   data[, dummy_thres := ifelse(RR_second < 0.3 | RR_second > 1.3, 1, 0)]
+#   
+#   return(data)
+# }
+# ```
+# 
+# 
+# ```{r}
+# library(data.table)
+# library(lubridate)
+# library(dplyr)
+# 
+# # Define the helper function
+# process_data <- function(data, initial_time) {
+#   
+#   # Convert the initial time to a POSIXct object
+#   start_time <- ymd_hms(initial_time)
+#   
+#   # Convert cumulative time and RR in milliseconds to seconds
+#   data[, time_seconds := Time / 1000]
+#   data[, RR_second := RR / 1000]
+#   
+#   # Calculate the clock time
+#   data$clock_time <- start_time + data$time_seconds
+#   
+#   # Extract the time part (HH:MM:SS) from clock_time
+#   data[, time_only := format(clock_time, format = "%H:%M:%S")]
+#   
+#   # Categorize the time_only
+#   data[, cat_time := fifelse(time_only >= "00:00:00" & time_only < "04:00:00", 1,
+#                       fifelse(time_only >= "04:00:00" & time_only < "08:00:00", 2,
+#                       fifelse(time_only >= "08:00:00" & time_only < "12:00:00", 3,
+#                       fifelse(time_only >= "12:00:00" & time_only < "16:00:00", 4,
+#                       fifelse(time_only >= "16:00:00" & time_only < "20:00:00", 5,
+#                       fifelse(time_only >= "20:00:00" & time_only < "24:00:00", 6, NA))))))]
+#   
+#   # Categorize the artifacts based on threshold < 0.3 s and > 1.3 s
+#   data[, dummy_thres := ifelse(RR_second < 0.3 | RR_second > 1.3, 1, 0)]
+#   
+#   return(data)
+# }
 ```
 
 
 ```{r}
-library(data.table)
-library(lubridate)
-library(dplyr)
-
-# Define the helper function
-process_data <- function(data, initial_time) {
-  
-  # Convert the initial time to a POSIXct object
-  start_time <- ymd_hms(initial_time)
-  
-  # Convert cumulative time and RR in milliseconds to seconds
-  data[, time_seconds := Time / 1000]
-  data[, RR_second := RR / 1000]
-  
-  # Calculate the clock time
-  data$clock_time <- start_time + data$time_seconds
-  
-  # Extract the time part (HH:MM:SS) from clock_time
-  data[, time_only := format(clock_time, format = "%H:%M:%S")]
-  
-  # Categorize the time_only
-  data[, cat_time := fifelse(time_only >= "00:00:00" & time_only < "04:00:00", 1,
-                      fifelse(time_only >= "04:00:00" & time_only < "08:00:00", 2,
-                      fifelse(time_only >= "08:00:00" & time_only < "12:00:00", 3,
-                      fifelse(time_only >= "12:00:00" & time_only < "16:00:00", 4,
-                      fifelse(time_only >= "16:00:00" & time_only < "20:00:00", 5,
-                      fifelse(time_only >= "20:00:00" & time_only < "24:00:00", 6, NA))))))]
-  
-  # Categorize the artifacts based on threshold < 0.3 s and > 1.3 s
-  data[, dummy_thres := ifelse(RR_second < 0.3 | RR_second > 1.3, 1, 0)]
-  
-  return(data)
-}
-```
-
-
-```{r}
-library(data.table)
-
-directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
-file_list <- c("testben1_ADVHRV_2024-02-02_1244.txt")
-
-# set result as list
-start_times_list <- list()
-
-for (i in seq_along(file_list)) {
-  
-    # input the file list
-    file <- file_list[i]
-    
-    # file path
-    full_file_path <- file.path(directory, file)
-
-    # Read the first line to get the recording start time
-    first_line <- tryCatch({
-      readLines(full_file_path, n = 1)
-    }, error = function(e) {
-      NA
-    })
-
-    if (!is.na(first_line)) {
-      
-      # extract the recording start time 
-      time_pattern <- "Recording start time:\\s*(\\d{1,2}:\\d{2}:\\d{2}\\s*[AP]M)"
-      start_time <- sub(time_pattern, "\\1", first_line)
-
-      # reformat the start time into 24 hr
-      start_time_24h <- format(strptime(start_time, "%I:%M:%S %p"), "%H:%M:%S")
-      
-      # append the start time to the list
-      start_times_list[[i]] <- start_time_24h
-      
-    } else {
-      
-      # Handle case where first line could not be read
-      start_times_list[[i]] <- NA
-    }
-}
-
-# Print the list of start times
-print(start_times_list)
+# library(data.table)
+# 
+# directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+# file_list <- c("testben1_ADVHRV_2024-02-02_1244.txt")
+# 
+# # set result as list
+# start_times_list <- list()
+# 
+# for (i in seq_along(file_list)) {
+#   
+#     # input the file list
+#     file <- file_list[i]
+#     
+#     # file path
+#     full_file_path <- file.path(directory, file)
+# 
+#     # Read the first line to get the recording start time
+#     first_line <- tryCatch({
+#       readLines(full_file_path, n = 1)
+#     }, error = function(e) {
+#       NA
+#     })
+# 
+#     if (!is.na(first_line)) {
+#       
+#       # extract the recording start time 
+#       time_pattern <- "Recording start time:\\s*(\\d{1,2}:\\d{2}:\\d{2}\\s*[AP]M)"
+#       start_time <- sub(time_pattern, "\\1", first_line)
+# 
+#       # reformat the start time into 24 hr
+#       start_time_24h <- format(strptime(start_time, "%I:%M:%S %p"), "%H:%M:%S")
+#       
+#       # append the start time to the list
+#       start_times_list[[i]] <- start_time_24h
+#       
+#     } else {
+#       
+#       # Handle case where first line could not be read
+#       start_times_list[[i]] <- NA
+#     }
+# }
+# 
+# # Print the list of start times
+# print(start_times_list)
 ```
 
 
