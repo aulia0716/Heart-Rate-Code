@@ -1,0 +1,552 @@
+---
+title: "Filtering_Imputation"
+author: "Aulia Dini Rafsanjani"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Filtering 4 
+
+I add the conditions above to filter the last row of data.
+
+```{r}
+library(dplyr)
+
+filtering <- function(df) {
+  
+  # Convert RR to seconds
+  df <- df %>% mutate(RR = RR / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Process the data
+  # set the starting point
+  i <- 1
+  while (i < nrow(df)) {
+    
+    # If RR > 1.3 s, then remove RR_i and its timestamp
+    # this is the new condition
+    if (!is.na(df$RR[i]) && df$RR[i] > 1.3) {
+      df <- df[-i, ]
+      next
+    }
+    
+    # if RR < 0.3s, then do all the merging process
+    if (!is.na(df$RR[i]) && df$RR[i] < 0.3) {
+      if (i + 1 > nrow(df)) break
+      RR_r <- df$RR[i] + df$RR[i + 1]
+      ER_r <- abs((RR_r - df$RR[i]) / df$RR[i])
+      ER_l <- abs((RR_r - df$RR[i - 1]) / df$RR[i - 1])
+      E_tot_r <- if (!is.na(ER_r) && !is.na(ER_l)) ER_r + ER_l else NA
+      E_10 <- compute_E_10(df, i)
+      
+      # If RR_r < 1.3s and ER_l <= E_10 and ER_r <= E_10 then 
+      # do right merge, replace RR_i+1 by RR_r and delete RR_i and its timestamp
+      if (!is.na(RR_r) && !is.na(ER_r) && !is.na(ER_l) && !is.na(E_10) && RR_r < 1.3 && ER_l <= E_10 && ER_r <= E_10) {
+        df$RR[i + 1] <- RR_r
+        df <- df[-i, ]
+        next
+      } else {
+        if (i - 1 < 1) break
+        RR_l <- df$RR[i] + df$RR[i - 1]
+        EL_r <- abs((RR_l - df$RR[i]) / df$RR[i])
+        EL_l <- abs((RR_l - df$RR[i - 1]) / df$RR[i - 1])
+        E_tot_l <- if (!is.na(EL_r) && !is.na(EL_l)) EL_r + EL_l else NA
+        E_10_prev <- compute_E_10(df, i - 1)
+        
+        # If RR_l < 1.3 s and EL_l <= E10 and EL_r <= E_10 then 
+        # left merge, replace RR_i by RR_l and delete RR_i-1 and its timestamp
+        if (!is.na(RR_l) && !is.na(EL_l) && !is.na(EL_r) && !is.na(E_10_prev) && RR_l < 1.3 && EL_l <= E_10_prev && EL_r <= E_10_prev) {
+          df$RR[i - 1] <- RR_l
+          df <- df[-i, ]
+          next
+        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l > 1.3) {
+          if (i + 1 <= nrow(df)) {
+            df <- df[-c(i, i + 1), ]
+          } else {
+            df <- df[-i, ]
+          }
+          next
+        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r < 1.3 && RR_l > 1.3) {
+          df$RR[i + 1] <- RR_r
+          df <- df[-i, ]
+          next
+        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l < 1.3) {
+          df$RR[i - 1] <- RR_l
+          df <- df[-i, ]
+          next
+        } else if (!is.na(RR_l) && !is.na(RR_r) && !is.na(E_tot_r) && !is.na(E_tot_l) && RR_l < 1.3 && RR_r < 1.3 && E_tot_r > 0.4 && E_tot_l > 0.4) {
+          if (E_tot_r < E_tot_l) {
+            df$RR[i + 1] <- RR_r
+            df <- df[-i, ]
+          } else {
+            df$RR[i - 1] <- RR_l
+            df <- df[-i, ]
+          }
+          next
+        }
+      }
+    }
+    # restate the iteration
+    i <- i + 1
+  }
+  
+  # Handle the last row
+  # if the RR < 0.3
+  while (nrow(df) > 0 && df$RR[nrow(df)] < 0.3) {
+    
+    # compute RR left
+    RR_l <- df$RR[nrow(df)] + df$RR[nrow(df)-1]
+    
+    # if RR_l > 1.3 s
+    if (RR_l > 1.3) {
+      df <- df[-nrow(df), ] # remove the row
+      next
+    } else {
+      df$RR[nrow(df)-1] <- RR_l # otherwise, do left merge
+      df <- df[-nrow(df), ]
+    }
+  }
+  
+  # if RR > 1.3
+  if (nrow(df) > 0 && df$RR[nrow(df)] > 1.3) {
+    df <- df[-nrow(df), ] # remove the row
+  }
+  
+  df <- df %>% mutate(RR = RR * 1000)
+  
+  return(df)
+}
+```
+
+Findings:
+
+- The problem of having RR< 0.3 s in the last row is solved. However, there is an equal number showed up as a merging result. 
+
+- I need to check the code for other datasets and check whether the result shows the same thing. 
+
+### Test data to Ben
+
+```{r}
+directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+
+file <- c("testben1_ADVHRV_2024-02-02_1244.txt")
+
+#  file path
+full_file_path <- file.path(directory, file)
+  
+# Read the CSV file
+data_original <- data.table::fread(full_file_path, sep = "\t")
+  
+# change column name
+colnames(data_original)[4] <- "conv_type"
+```
+
+```{r}
+# apply the helper function to one dataset
+data_filtered<- filtering(data_original) 
+```
+
+```{r}
+# check the result
+# before filtering
+print(dim(data_original))
+print(summary(data_original$Time))
+print(summary(data_original$RR)) 
+table(data_original$RR<300)
+table(data_original$RR>1300)
+
+# after filtering
+print(dim(data_filtered))
+print(summary(data_filtered$Time))
+print(summary(data_filtered$RR)) 
+table(data_filtered$RR<300)
+table(data_filtered$RR>1300)
+
+# check dimension before and after filtering
+dim(data_original)-dim(data_filtered)
+
+# check the last observation
+tail(data_original, 5)
+tail(data_filtered, 5)
+```
+
+### Apply to other datasets
+
+```{r}
+# Define directory and file list
+directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+file_list <- c(
+  "testben1_ADVHRV_2024-02-02_1244.txt",
+  "testdini1_ADVHRV_20240112.txt", 
+  "testamanda1_ADVHRV_2024-01-26.txt",
+  "testjenny1_ADVHRV_2024-01-12.txt",
+  "testkaris1_ADVHRV_2024-01-26.txt",
+  "testmary1_ADVHRV_2024-01-12.txt",
+  "testneil1_ADVHRV_2024-01-15.txt",
+  "test190031_ADVHRV_2024-05-07.txt", 
+  "test867601_ADVHRV_2024-05-07.txt"
+)
+
+# Loop through each file, apply the filtering function, and save the results
+for (file_name in file_list) {
+  # Construct the full file path
+  file_path <- file.path(directory, file_name)
+  
+  # Read the data
+  df <- data.table::fread(file_path, sep = "\t")
+  
+  # Apply the filtering function
+  filtered_df <- filtering(df)
+  
+  # Construct the output file name
+  output_file_name <- paste0("filtered_", file_name)
+  output_file_path <- file.path(directory, output_file_name)
+  
+  # Save the filtered data
+  write.table(filtered_df, file = output_file_path, sep = "\t", row.names = FALSE)
+  
+  # Print the summary
+  print(paste("Summary for:", output_file_name))
+  print(dim(filtered_df))
+  print(summary(filtered_df$Time))
+  print(summary(filtered_df$RR))
+  print(table(filtered_df$RR < 300))
+  print(table(filtered_df$RR > 1300))
+  cat("\n")
+}
+```
+Findings:
+
+- All data does not have any value < 0.3 s or > 1.3 s anymore. 
+
+### Imputation code
+
+### Prepare the test data
+
+```{r}
+directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+
+file <- c("testben1_ADVHRV_2024-02-02_1244.txt")
+
+#  file path
+full_file_path <- file.path(directory, file)
+  
+# Read the CSV file
+data_original <- data.table::fread(full_file_path, sep = "\t")
+  
+# change column name
+colnames(data_original)[4] <- "conv_type"
+```
+
+```{r}
+# apply the helper function to one dataset
+data_filtered<- filtering(data_original) 
+```
+
+```{r}
+# check the result
+# before filtering
+print(dim(data_original))
+print(summary(data_original$Time))
+print(summary(data_original$RR)) 
+table(data_original$RR<300)
+table(data_original$RR>1300)
+
+# after filtering
+print(dim(data_filtered))
+print(summary(data_filtered$Time))
+print(summary(data_filtered$RR)) 
+table(data_filtered$RR<300)
+table(data_filtered$RR>1300)
+
+# check dimension before and after filtering
+dim(data_original)-dim(data_filtered)
+
+# check the last observation
+head(data_original, 30)
+head(data_filtered, 30)
+```
+
+### Imputation code
+
+### Version 1 --> condition check within imputation loop
+
+```{r}
+library(dplyr)
+
+impute_rr_intervals <- function(df) {
+  
+  # Convert RR from milliseconds to seconds
+  df <- df %>% mutate(RR = RR / 1000)
+  df <- df %>% mutate(Time = Time / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Helper function to compute deviation E_r and E_l
+  compute_deviation <- function(RR_j, RR_prev, RR_next) {
+    E_l <- abs((RR_j - RR_prev) / RR_prev)
+    E_r <- abs((RR_next - RR_j) / RR_j)
+    return(list(E_l = E_l, E_r = E_r))
+  }
+  
+  # Iterate over RR intervals
+  i <- 1
+  while (i < nrow(df)) {
+    
+    # if the time difference > 1.3 and the time difference is not equal to RR[i+1], execute the imputation
+    while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3 && (df$Time[i + 1] - df$Time[i]) != round(df$RR[i + 1], 0)) {
+      
+      attempt_count <- 0
+      repeat {
+        
+        # Compute mean and standard deviation
+        if (i - 9 <= 0) break
+        mu <- mean(df$RR[(i - 9):i])
+        sigma <- sd(df$RR[(i - 9):i])
+        
+        # Create new RR interval
+        new_rr <- rnorm(1, mean = mu, sd = sigma)
+        
+        # Insert the new RR interval into the dataframe
+        df <- df %>% add_row(RR = new_rr, .before = i + 1)
+        
+        # Calculate the new Time value
+        T_end <- df$Time[i + 2] 
+        new_time <- T_end - df$RR[i + 2] 
+
+        # Insert the new Time value into the dataframe
+        df$Time[i + 1] <- new_time
+        
+        # Check conditions for the new_rr
+        deviations <- compute_deviation(new_rr, df$RR[i - 1], df$RR[i + 1])
+        
+        # Compute E_10 with the new_rr
+        E_10 <- compute_E_10(df, i)
+        
+        # Check if the new RR interval respects the conditions
+        if (new_rr > 0.3 && new_rr < 1.3 && !is.na(E_10) && deviations$E_r <= E_10 && 
+            deviations$E_r <= 0.4 && deviations$E_l <= E_10 && deviations$E_l <= 0.4) {
+          break
+          
+        } else {
+          
+          # If conditions are not met, remove the last inserted RR interval
+          df <- df[-(i + 1), ]
+          
+          # Adjust E_10 and try again
+          E_10 <- E_10 * 1.05
+          
+          attempt_count <- attempt_count + 1
+          if (attempt_count > 3) {
+            # If conditions are not met after 3 attempts, break the loop
+            break
+          }
+        }
+      }
+    }
+    i <- i + 1
+  }
+  
+  # Convert RR from seconds back to milliseconds
+  df <- df %>% mutate(RR = RR * 1000)
+  df <- df %>% mutate(Time = Time * 1000)
+  
+  # Return the data frame
+  return(df)
+}
+
+```
+
+Findings :
+
+- The code Version 1 works both in small and large datasets. 
+
+### Version 2 --> condition check within imputation loop
+
+```{r}
+library(dplyr)
+
+impute_rr_intervals <- function(df){
+  
+  # Convert RR and Time from milliseconds to seconds
+  df <- df %>% mutate(RR = RR / 1000, Time = Time / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i){
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$RR[i:(i+10)] - df$RR[(i-1):(i+9)]) / df$RR[(i-1):(i+9)])) / 10
+  }
+
+  # Helper function to compute deviation E_r and E_l
+  compute_deviation <- function(RR_j, RR_prev, RR_next) {
+    E_l <- abs((RR_j - RR_prev) / RR_prev)
+    E_r <- abs((RR_next - RR_j) / RR_j)
+    return(list(E_l = E_l, E_r = E_r))
+  }
+  
+  # Iterate over RR intervals
+  i <- 1
+  iteration_limit <- 10000 # Limit the iteration
+  iteration_count <- 0
+  
+  while (i < nrow(df) && iteration_count < iteration_limit) {
+    iteration_count <- iteration_count + 1
+    
+    # If the time difference >1.3s and the time difference is not equal to RR[i+1], impute
+    while (!is.na(df$Time[i]) && !is.na(df$Time[i+1]) && (df$Time[i+1] - df$Time[i]) > 1.3 && (df$Time[i+1] - df$Time[i]) != round(df$RR[i+1], 0)) {
+     
+      # Compute mean and standard deviation
+      if (i - 9 <= 0) break
+      mu <- mean(df$RR[(i-9):i])
+      sigma <- sd(df$RR[(i-9):i])
+      
+      # Create new RR interval
+      new_rr <- rnorm(1, mean = mu, sd = sigma)
+      
+      # Insert the new RR interval into the data frame
+      df <- df %>% add_row(RR = new_rr, .before = i + 1)
+      
+      # Calculate the new Time value
+      T_end <- df$Time[i+2]
+      new_time <- T_end - df$RR[i+2]
+      
+      # Insert the time value into the data frame
+      df$Time[i+1] <- new_time
+    }
+    
+    # Condition check after imputation in each gap
+    if (!is.na(df$Time[i]) && !is.na(df$Time[i+1]) && (df$Time[i+1] - df$Time[i]) > 1.3) {
+      
+      E_10 <- compute_E_10(df, i)
+      deviations <- compute_deviation(df$RR[i+1], df$RR[i], df$RR[i+2])
+      attempt_count <- 0
+      
+      # Check the conditions based on table 1
+      while (!(df$RR[i+1] > 0.3 && df$RR[i+1] < 1.3 && !is.na(E_10) && deviations$E_r <= E_10 && deviations$E_r <= 0.4 && deviations$E_l <= E_10 && deviations$E_l <= 0.4)) {
+        
+        # Delete last two inserted RRs
+        if (nrow(df[i:(i+1)]) > 1) {
+          df <- df %>% slice(-c(i, i+1))
+        } else {
+          df <- df %>% slice(-i)
+        }
+        
+        attempt_count <- attempt_count + 1
+        
+        if (attempt_count <= 4) {
+          
+          # Re-impute with a loosened E_10
+          E_10 <- E_10 * 1.05
+          
+          # Re-compute mean and standard deviation
+          mu <- mean(df$RR[(i-9):i])
+          sigma <- sd(df$RR[(i-9):i])
+          
+          # Re-compute the new rr
+          new_rr <- rnorm(1, mean = mu, sd = sigma)
+          
+          # Re-compute the new Time 
+          T_end <- df$Time[i+2]
+          new_time <- T_end - df$RR[i+2]
+          df$Time[i+1] <- new_time
+          
+          # Re-compute the deviation
+          deviations <- compute_deviation(new_rr, df$RR[i], df$RR[i+2])
+          
+        } else {
+          
+          # Compute last two RR values with deviation
+          deviations <- compute_deviation(df$RR[i+1], df$RR[i], df$RR[i+2])
+          break
+        }
+      }
+    }
+    i <- i + 1
+  }
+  
+  if (iteration_count >= iteration_limit) {
+    warning("Reached iteration limit. Possible infinite loop.")
+  }
+  
+  # Convert RR and Time from seconds back to milliseconds
+  df <- df %>% mutate(RR = RR * 1000, Time = Time * 1000)
+  
+  # Return the modified data frame
+  return(df)
+}
+
+```
+
+Findings:
+
+The code version 2 works in small datasets, but not for the big one. I need more time to test that. 
+
+### Apply the imputation function to the dataset
+
+```{r}
+extract4 <- data_original[1:100, ]
+```
+
+```{r}
+extract4a <- data_filtered[1:500, ]
+```
+
+```{r}
+data_imputed_4b <- impute_rr_intervals(extract4a)
+```
+
+```{r}
+summary(extract4a$Time)
+summary(extract4a$RR)
+dim(extract4a)
+head(extract4a)
+summary(data_imputed_4b$Time)
+summary(data_imputed_4b$RR)
+dim(data_imputed_4b)
+head(data_imputed_4b)
+```
+
+Topics to discuss:
+
+1. We need to discuss how to handle data for the first ten observation --> Now, it still used a BREAK
+
+2. Does the calculation of E_10 should be done before of after the new rows inserted?
+
+### Test to bigger dataset
+
+```{r}
+data_imputed <- impute_rr_intervals(data_filtered)
+```
+
+```{r}
+summary(data_filtered$Time)
+summary(data_filtered$RR)
+dim(data_filtered)
+head(data_filtered)
+summary(data_imputed$Time)
+summary(data_imputed$RR)
+dim(data_imputed)
+head(data_imputed)
+```
+```{r}
+extract5 <- subset(data_imputed, RR>1299)
+```
+
+Findings:
+
+- The code Version 1 works well for real data, with the total processing time of 30 minutes. 
+
+- The summary statistics shows that the range of RR is between 0.3-1.3. However, there is many datasets with value of 1299 with decimal that is rounded to 1300. I think this is fine. 
