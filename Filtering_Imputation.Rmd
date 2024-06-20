@@ -144,15 +144,9 @@ filtering <- function(df) {
 }
 ```
 
-Findings:
-
-- The problem of having RR< 0.3 s in the last row is solved. However, there is an equal number showed up as a merging result. 
-
-- I need to check the code for other datasets and check whether the result shows the same thing. 
-
 ### Imputation code
 
-### Final Code
+### Final version
 
 ```{r}
 library(dplyr)
@@ -182,17 +176,18 @@ impute_rr_intervals <- function(df) {
     
     # Check if the time difference > 1.3 and not equal to RR[i+1]
     while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
+      
+      # Skip the gap if there are not enough previous RR intervals
+      if (i - 9 <= 0) {
+        cat("Not enough previous RR intervals, skipping gap.\n")
+        break
+      }
+      
       attempt_count <- 0
       repeat {
-        if (i - 9 <= 0) {
-          # Use as many previous RR intervals as available
-          mu <- mean(df$RR[1:i])
-          sigma <- sd(df$RR[1:i])
-        } else {
-          # Use mean and std deviation from 10 previous observation
-          mu <- mean(df$RR[(i - 9):i])
-          sigma <- sd(df$RR[(i - 9):i])
-        }
+        # Use mean and std deviation from 10 previous observations
+        mu <- mean(df$RR[(i - 9):i])
+        sigma <- sd(df$RR[(i - 9):i])
         
         # Generate new RR value
         new_rr <- rnorm(1, mean = mu, sd = sigma)
@@ -245,7 +240,7 @@ impute_rr_intervals <- function(df) {
 ```{r}
 directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
 
-file <- c("testdini1_ADVHRV_20240112.txt")
+file <- c("test867601_ADVHRV_2024-05-07.txt")
 
 #  file path
 full_file_path <- file.path(directory, file)
@@ -264,7 +259,7 @@ data_filtered<- filtering(data_original)
 
 ```{r}
 # subset the data
-extract4a <- data_filtered[1:190674, ]
+extract4a <- data_filtered[1:444631, ]
 ```
 
 ```{r}
@@ -287,8 +282,10 @@ head(data_imputed_4b)
 ```
 Findings:
 
+0. Test data : Ben, Neil, MA, Dini, Amanda, Jenny, Mary, Angelica
+
 1. The code works well on the small and large datasets for all tests participant: Angelica, Ben, Neil, Marie-Anne, Karis, Jenny, Amanda, Aulia. There is not any observation that is not within range of 0.3s < RR < 1.3s. 
 
-2. The mean and standard deviation from the ten first observation issue --> I use as many previous RR intervals as are available, ensuring the function continues to execute correctly for all iterations. We can edit it later if we have other solutions. 
+2. The mean and standard deviation from the ten first observation issue --> Skip and do not apply imputation if the prior observations are less than 10. 
 
 3. Checking conditions do not converge for conditions 2 and 3 --> I remove the physiological conditions 2 and 3 (it is justified by the paper page 6). Therefore, the conditions checking for imputation only check whether 0.3s < RR <1.3s. 
