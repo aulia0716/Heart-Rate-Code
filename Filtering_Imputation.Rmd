@@ -13,6 +13,8 @@ This file contains final code of two parts: Filtering and Imputation. The filter
 
 Please note that the processing time may take a few minutes to complete. Therefore, I recommend running this code for each dataset individually (rather than many datasets simultaneously) to avoid potential errors.
 
+The file naming in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
+
 ### Filtering code
 
 ### Filtering 4 
