@@ -11,9 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 This file contains the code for preprocessing heart rate data, particularly focusing on the exploration of artifacts. Artifacts refer to heart rate data affected by movement or other activities unrelated to physiological conditions. These artifacts need to be addressed during preprocessing. This code provides descriptive statistics related to artifacts from our test participants. After exploring the artifacts, filtering and imputation processes are required. This file includes a draft version of the filtering and imputation procedures.
 
-The file naming in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the following naming convention format: O:\WorkLife-Data\biomonitors\holter_ecg\participantID\participantID_advhrv.txt. 
-For example, to access participant 19003's data, use this address: O:\WorkLife-Data\biomonitors\holter_ecg\19003\19003_advhrv.txt. 
-You should also have a full access to the O:\ drive to apply this code to the real dataset. 
+The file naming in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
 
 ### Goal
 
