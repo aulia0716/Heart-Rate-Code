@@ -49,6 +49,12 @@ Create the additional condition of the filtering loop :
 
 Start coding for imputation. 
 
+### Meeting on June 17th, 2024. 
+
+1. First ten observation issue --> Skip the gap, don't do any imputation if the prior observations are less than 10. 
+
+2. Should the condition check happen for each observation or after the whole imputed observation finished? --> Condition check was done for each observation, not for the whole imputed observation. 
+
 ### Library
 
 ```{r}
