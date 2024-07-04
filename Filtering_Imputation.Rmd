@@ -15,7 +15,7 @@ Please note that the processing time may take a few minutes to complete. Therefo
 
 The file name / file path in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
 
-### Filtering code (Version 4)
+### Filtering code
 
 ```{r}
 library(dplyr)
