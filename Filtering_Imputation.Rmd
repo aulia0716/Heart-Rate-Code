@@ -13,13 +13,9 @@ This file contains final code of two parts: Filtering and Imputation. The filter
 
 Please note that the processing time may take a few minutes to complete. Therefore, I recommend running this code for each dataset individually (rather than many datasets simultaneously) to avoid potential errors.
 
-The file naming in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
+The file name / file path in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
 
-### Filtering code
-
-### Filtering 4 
-
-I add the conditions above to filter the last row of data.
+### Filtering code (Version 4)
 
 ```{r}
 library(dplyr)
@@ -172,10 +168,11 @@ impute_rr_intervals <- function(df) {
   # Iterate over RR intervals
   i <- 1
   while (i < nrow(df)) {
+    # Print the iteration
     cat("Iteration:", i, "\n")
     
-    # Check if the time difference > 1.3 and not equal to RR[i+1]
-    while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
+    # Check if time difference > 1.3 and not equal to RR[i+1]
+    while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3 && (df$Time[i + 1] - df$Time[i]) != round(df$RR[i + 1], 0)) {
       
       # Skip the gap if there are not enough previous RR intervals
       if (i - 9 <= 0) {
@@ -184,6 +181,7 @@ impute_rr_intervals <- function(df) {
       }
       
       attempt_count <- 0
+      inserted_data_count <- 0
       repeat {
         # Use mean and std deviation from 10 previous observations
         mu <- mean(df$RR[(i - 9):i])
@@ -195,6 +193,7 @@ impute_rr_intervals <- function(df) {
         
         # Insert the new RR value to the gap
         df <- df %>% add_row(RR = new_rr, .before = i + 1)
+        inserted_data_count <- inserted_data_count + 1
         
         # Insert new Time to the inserted new RR
         T_end <- df$Time[i + 2]
@@ -206,26 +205,44 @@ impute_rr_intervals <- function(df) {
         deviations <- compute_deviation(new_rr, df$RR[i - 1], df$RR[i + 1])
         E_10 <- compute_E_10(df, i)
         
-        if (new_rr > 0.3 && new_rr < 1.3) {
-          cat("Conditions met for new RR.\n")
+        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) &&
+            deviations$E_l <= E_10 && deviations$E_r <= E_10 && new_rr >= 0.3 && new_rr <= 1.3) {
+          # Conditions are met, continue to next gap
           break
-        } else {
-          cat("Conditions not met, retrying...\n")
-          df <- df[-(i + 1), ] # Remove observation
-          E_10 <- E_10 * 1.05 # Loosen the requirements
-          attempt_count <- attempt_count + 1
-          if (attempt_count > 3) {
-            cat("Exceeded maximum attempts.\n")
-            break
-          }
         }
+        
+        # Conditions not met, retry
+        cat("Conditions not met, retrying...\n")
+        if (inserted_data_count == 1) {
+          df <- df[-(i + 1), ] # Remove the last inserted observation
+        } else {
+          df <- df[-(i:(i + 1)), ] # Remove the last two inserted observations
+        }
+        inserted_data_count <- inserted_data_count - 1
+        attempt_count <- attempt_count + 1
+        
+        if (attempt_count == 4) {
+          E_10 <- E_10 * 1.05 # Loosen the requirement by 5%
+          cat("Loosened E_10 by 5%.\n")
+        }
+        
+        if (attempt_count > 4) {
+          cat("Exceeded maximum attempts.\n")
+          break
+        }
+      }
+      
+      if (attempt_count > 4) {
+        break
       }
     }
     i <- i + 1
   }
   
   # Convert RR and Time from seconds back to milliseconds
-  df <- df %>% mutate(RR = RR * 1000, Time = Time * 1000)
+  df <- df %>% 
+    mutate(Time = round((Time * 1000),0),
+           RR = round((RR * 1000),3))
   
   # Return the dataframe result
   return(df)
@@ -235,17 +252,21 @@ impute_rr_intervals <- function(df) {
 
 ### Test the imputation function to the dataset
 
-### Test data to other datasets
+Note: You need to change the file path with the current file path of the data you are currenly working on. 
 
 ```{r}
-directory <- "/Users/auliadinirafsanjani/Dropbox (University of Michigan)/WorkLife_ECGTest/Test"
+# input the directory
+directory <- "/Users/auliadinirafsanjani/University of Michigan Dropbox/Aulia Dini Rafsanjani/WorkLife_ECGTest/aulia_20240112" 
+# change the directory with the current directory
 
-file <- c("test867601_ADVHRV_2024-05-07.txt")
+# input the file path
+file <- c("testdini1_ADVHRV_20240112.txt") 
+# change the directory with the current directory
 
-#  file path
+# file path
 full_file_path <- file.path(directory, file)
   
-# Read the CSV file
+# read the CSV file
 data_original <- data.table::fread(full_file_path, sep = "\t")
   
 # change column name
@@ -258,34 +279,46 @@ data_filtered<- filtering(data_original)
 ```
 
 ```{r}
-# subset the data
-extract4a <- data_filtered[1:444631, ]
+# subset the data (turned off for testing purpose)
+# check for smaller dataset such as 300, 1000, 5000, 15000, ...., max observation
+# extract4a <- data_filtered[1:190674, ]
 ```
 
 ```{r}
 # apply the imputation code
-data_imputed_4b <- impute_rr_intervals(extract4a)
+data_imputed <- impute_rr_intervals(data_filtered)
 ```
 
 ```{r}
 # check the summary of data before imputation
-summary(extract4a$Time)
-summary(extract4a$RR)
-dim(extract4a)
-head(extract4a)
+summary(data_filtered$Time)
+summary(data_filtered$RR)
+dim(data_filtered)
+head(data_filtered)
 
 # check the summary of data after imputation
-summary(data_imputed_4b$Time)
-summary(data_imputed_4b$RR)
-dim(data_imputed_4b)
-head(data_imputed_4b)
+summary(data_imputed$Time)
+summary(data_imputed$RR)
+dim(data_imputed)
+head(data_imputed)
 ```
+```{r}
+# save the imputed datasets
+output_file <- paste0("imputed_", file)
+
+# Full output file path
+output_file_path <- file.path(directory, output_file)
+
+# Save the processed data
+write.table(data_imputed, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
+```
+
 Findings:
 
-0. Test data : Ben, Neil, MA, Dini, Amanda, Jenny, Mary, Angelica
+0. Test data : Ben, Angelica, Marie-Anne, Neil, Mary, Karis, Jeny, Amanda, Dini 
 
-1. The code works well on the small and large datasets for all tests participant: Angelica, Ben, Neil, Marie-Anne, Karis, Jenny, Amanda, Aulia. There is not any observation that is not within range of 0.3s < RR < 1.3s. 
+1. The code works well on the small and large datasets for all tests participant. There is not any observation that is not within range of 0.3s < RR < 1.3s. 
 
-2. The mean and standard deviation from the ten first observation issue --> Skip and do not apply imputation if the prior observations are less than 10. 
+2. The mean and standard deviation from the ten first observation issue. Solution: the current code skip and do not apply imputation if the prior observations are less than 10. 
 
-3. Checking conditions do not converge for conditions 2 and 3 --> I remove the physiological conditions 2 and 3 (it is justified by the paper page 6). Therefore, the conditions checking for imputation only check whether 0.3s < RR <1.3s. 
+3. Checking conditions after imputation do not converge for conditions 2 and 3. Solution: I remove the physiological conditions 2 and 3 (it is justified by the paper page 6). Therefore, the conditions checking for imputation only check whether 0.3s < RR <1.3s. 
