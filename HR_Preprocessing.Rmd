@@ -55,6 +55,10 @@ Start coding for imputation.
 
 2. Should the condition check happen for each observation or after the whole imputed observation finished? --> Condition check was done for each observation, not for the whole imputed observation. 
 
+### Meeting on June 24th, 2024
+
+1. Improve the conditions check, accomodate this conditions: If the imputed observation does not fulfill the conditions check, we should remove that observation and one previous observation. 
+
 ### Library
 
 ```{r}
