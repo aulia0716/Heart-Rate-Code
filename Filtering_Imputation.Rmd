@@ -250,7 +250,7 @@ impute_rr_intervals <- function(df) {
 
 ```
 
-### Test the imputation function to the dataset
+### Apply the imputation function to the dataset
 
 Note: You need to change the file path with the current file path of the data you are currenly working on. 
 
