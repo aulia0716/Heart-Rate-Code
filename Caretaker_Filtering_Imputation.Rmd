@@ -1,0 +1,612 @@
+---
+title: "Caretaker_Filtering_Imputation"
+author: "Aulia Dini Rafsanjani"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file contains final code of two parts: Filtering and Imputation. The filtering process is handled by the `filtering` function, while the imputation process is managed by the `impute_IBI_intervals` function. To run the code, first execute the `filtering` code chunks and apply the filtering function to your data set. After filtering, you can use the resulting data_filtered as input for the `impute_IBI_intervals` steps.
+
+Please note that the processing time may take a few minutes to complete. Therefore, I recommend running this code for each data set individually (rather than many data set simultaneously) to avoid potential errors.
+
+To apply this code to real participants, you should use the new naming convention format in the O drive. 
+
+Side note:
+
+The imputation code use the random number from normal distribution to fill out the gap. I use the function `rnorm` without using `set.seed` function. This means that every time we do the imputation for the same data set, the result will generate a different random number. 
+
+### Filtering code (Version 4)
+
+```{r}
+library(dplyr)
+
+filtering <- function(df) {
+  
+  # Remove unnecessary column
+  df <- df %>% select(-Systolic, -Diastolic, -MAP, -HR, -`BV*`, -CO, -LVET, -SV, -`AS*`)
+  
+  # Convert IBI to seconds
+  df <- df %>% mutate(IBI = IBI / 1000)
+  print("Converted IBI to seconds:")
+  
+  # Remove if the first row IBI is zero
+  df <- if (df$IBI[1] == 0) df[-1, ] else df
+
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$IBI[i:(i + 10)] - df$IBI[(i - 1):(i + 9)]) / df$IBI[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Process the data
+  i <- 1
+  while (i < nrow(df)) {
+    print(paste("Processing row:", i))
+    
+    # If IBI > 1.3 s, then remove IBI_i and its timestamp
+    if (!is.na(df$IBI[i]) && df$IBI[i] > 1.3) {
+      print(paste("IBI >", 1.3, "at row", i, "- Removing row"))
+      df <- df[-i, ]
+      next
+    }
+    
+    # if IBI < 0.3s, then do all the merging process
+    if (!is.na(df$IBI[i]) && df$IBI[i] < 0.3) {
+      print(paste("IBI <", 0.3, "at row", i, "- Performing merge process"))
+      
+      if (i + 1 > nrow(df)) break
+      IBI_r <- df$IBI[i] + df$IBI[i + 1]
+      ER_r <- if (!is.na(df$IBI[i]) && !is.na(IBI_r)) abs((IBI_r - df$IBI[i]) / df$IBI[i]) else NA
+      ER_l <- if (i > 1 && !is.na(df$IBI[i - 1]) && !is.na(IBI_r)) abs((IBI_r - df$IBI[i - 1]) / df$IBI[i - 1]) else NA
+      E_tot_r <- if (!is.na(ER_r) && !is.na(ER_l)) ER_r + ER_l else NA
+      E_10 <- compute_E_10(df, i)
+      
+      print(paste("IBI_r:", IBI_r, "ER_r:", ER_r, "ER_l:", ER_l, "E_tot_r:", E_tot_r, "E_10:", E_10))
+      
+      # If IBI_r < 1.3s and ER_l <= E_10 and ER_r <= E_10 then 
+      # do right merge, replace IBI_i+1 by IBI_r and delete IBI_i and its timestamp
+      if (!is.na(IBI_r) && !is.na(ER_r) && !is.na(ER_l) && !is.na(E_10) && IBI_r < 1.3 && ER_l <= E_10 && ER_r <= E_10) {
+        df$IBI[i + 1] <- IBI_r
+        df <- df[-i, ]
+        print("Performed right merge:")
+        next
+      } else {
+        if (i - 1 < 1) break
+        IBI_l <- df$IBI[i] + df$IBI[i - 1]
+        EL_r <- if (!is.na(df$IBI[i]) && !is.na(IBI_l)) abs((IBI_l - df$IBI[i]) / df$IBI[i]) else NA
+        EL_l <- if (!is.na(df$IBI[i - 1]) && !is.na(IBI_l)) abs((IBI_l - df$IBI[i - 1]) / df$IBI[i - 1]) else NA
+        E_tot_l <- if (!is.na(EL_r) && !is.na(EL_l)) EL_r + EL_l else NA
+        E_10_prev <- compute_E_10(df, i - 1)
+        
+        print(paste("IBI_l:", IBI_l, "EL_r:", EL_r, "EL_l:", EL_l, "E_tot_l:", E_tot_l, "E_10_prev:", E_10_prev))
+        
+        # If IBI_l < 1.3 s and EL_l <= E10 and EL_r <= E_10 then 
+        # left merge, replace IBI_i by IBI_l and delete IBI_i-1 and its timestamp
+        if (!is.na(IBI_l) && !is.na(EL_l) && !is.na(EL_r) && !is.na(E_10_prev) && IBI_l < 1.3 && EL_l <= E_10_prev && EL_r <= E_10_prev) {
+          df$IBI[i - 1] <- IBI_l
+          df <- df[-i, ]
+          print("Performed left merge:")
+          next
+        } else if (!is.na(IBI_r) && !is.na(IBI_l) && IBI_r > 1.3 && IBI_l > 1.3) {
+          if (i + 1 <= nrow(df)) { # Else if IBI_r > 1.3 and IBI_l > 1.3, then Delete both {IBI}_i and {IBI}_{i+1}
+            df <- df[-c(i, i + 1), ]
+          } else {
+            df <- df[-i, ]
+          }
+          print("Deleted rows due to IBI_r > 1.3 and IBI_l > 1.3:")
+          next
+        } 
+        # Else if IBI_r < 1.3 and IBI_l > 1.3 then Replace {IBI}_{i+1} by {IBI}_r and delete {IBI}_i and its timestamp
+        else if (!is.na(IBI_r) && !is.na(IBI_l) && IBI_r < 1.3 && IBI_l > 1.3) {
+          df$IBI[i + 1] <- IBI_r 
+          df <- df[-i, ]
+          print("Replaced IBI_i+1 by IBI_r and deleted IBI_i:")
+          next
+        } 
+        # Else if IBI_r > 1.3s and IBI_l < 1.3s then Replace {IBI}_{i-1} by {IBI}_l and delete {IBI}_i and its timestamp
+        else if (!is.na(IBI_r) && !is.na(IBI_l) && IBI_r > 1.3 && IBI_l < 1.3) {
+          df$IBI[i - 1] <- IBI_l 
+          df <- df[-i, ]
+          print("Replaced IBI_i-1 by IBI_l and deleted IBI_i:")
+          next
+        } 
+        # Else if both {IBI}_l and {IBI}_r < 1.3s but errors {Etot}_r and {Etot}_l are higher than 0.4, then keep the one with smaller error
+        else if (!is.na(IBI_l) && !is.na(IBI_r) && !is.na(E_tot_r) && !is.na(E_tot_l) && IBI_l < 1.3 && IBI_r < 1.3 && E_tot_r > 0.4 
+                 && E_tot_l > 0.4) {
+          if (E_tot_r < E_tot_l) { 
+            df$IBI[i + 1] <- IBI_r
+            df <- df[-i, ]
+          } else {
+            df$IBI[i - 1] <- IBI_l
+            df <- df[-i, ]
+          }
+          print("Kept the one with smaller error and removed the other:")
+          next
+        }
+      }
+    }
+    # restate the iteration
+    i <- i + 1
+  }
+  
+  # Handle the last row
+  # if the IBI < 0.3
+  while (nrow(df) > 0 && df$IBI[nrow(df)] < 0.3) {
+    
+    # compute IBI left
+    IBI_l <- df$IBI[nrow(df)] + df$IBI[nrow(df) - 1]
+    
+    # if IBI_l > 1.3 s
+    if (IBI_l > 1.3) {
+      df <- df[-nrow(df), ] # remove the row
+      print("Removed last row due to IBI < 0.3 and IBI_l > 1.3:")
+      next
+    } else {
+      df$IBI[nrow(df) - 1] <- IBI_l # otherwise, do left merge
+      df <- df[-nrow(df), ]
+      print("Performed left merge on the last row:")
+    }
+  }
+  
+  # if IBI > 1.3
+  if (nrow(df) > 0 && df$IBI[nrow(df)] > 1.3) {
+    df <- df[-nrow(df), ] # remove the row
+    print("Removed last row due to IBI > 1.3:")
+  }
+  
+  # Convert back RR to milliseconds
+  df <- df %>% mutate(IBI = IBI * 1000)
+  print("Converted RR back to milliseconds:")
+  
+  return(df)
+}
+```
+
+### Impute IBI version 2 (after debugging) 
+
+When I apply the previous code, the loop seems not converge. Therefore, I revise the code with the details below:
+
+- Compute E_10 Once: The E_10 value is computed once for each gap instead of recalculating during each retry.
+
+- Retry Strategy: The code retries generating the new IBI value up to max_attempts times, with a slight loosening of the standard deviation (sigma) each time.
+
+- Skip Condition: If the maximum number of retries is reached, the function skips to the next interval, preventing the loop from being stuck indefinitely.
+
+```{r}
+impute_IBI_intervals <- function(df) {
+  
+  # library
+  library(dplyr)
+  library(tidyr)
+  
+  # Separate time into hours, minutes, seconds, and milliseconds, then calculate Timestamps
+  df <- df %>%
+    mutate(Temp = Time) %>%  # Create a temporary column to split
+    separate(Temp, into = c("hours", "minutes", "sec_millisec"), sep = ":") %>%
+    separate(sec_millisec, into = c("seconds", "milliseconds"), sep = "\\.") %>%
+    mutate(across(c(hours, minutes, seconds, milliseconds), as.integer)) %>%
+    mutate(
+      hours = hours * 60 * 60 * 1000,
+      minutes = minutes * 60 * 1000,
+      seconds = seconds * 1000,
+      Timestamps = hours + minutes + seconds + milliseconds
+  ) %>%
+  select(-hours, -minutes, -seconds, -milliseconds)  # Remove intermediate columns
+  
+  # Convert IBI and Time from milliseconds to seconds
+  df <- df %>% mutate(IBI = IBI / 1000, Timestamps = Timestamps / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$IBI[i:(i + 10)] - df$IBI[(i - 1):(i + 9)]) / df$IBI[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Helper function to compute deviation E_r and E_l
+  compute_deviation <- function(IBI_j, IBI_prev, IBI_next) {
+    E_l <- abs((IBI_j - IBI_prev) / IBI_prev)
+    E_r <- abs((IBI_next - IBI_j) / IBI_j)
+    return(list(E_l = E_l, E_r = E_r))
+  }
+  
+  # Iterate over IBI intervals
+  i <- 1
+  while (i < nrow(df)) {
+    cat("Iteration:", i, "\n")
+    
+    # Check if the time difference > 1.3 and not equal to IBI[i+1]
+    while (!is.na(df$Timestamps[i]) && !is.na(df$Timestamps[i + 1]) && (df$Timestamps[i + 1] - df$Timestamps[i]) > 1.3) {
+      
+      # Skip the gap if there are not enough previous IBI intervals
+      if (i - 9 <= 0) {
+        cat("Not enough previous IBI intervals, skipping gap.\n")
+        break
+      }
+      
+      # Calculate E_10 once per gap
+      E_10 <- compute_E_10(df, i)
+      
+      attempt_count <- 0
+      max_attempts <- 5  # Set a reasonable limit
+      while (attempt_count < max_attempts) {
+        # Use mean and std deviation from 10 previous observations
+        mu <- mean(df$IBI[(i - 9):i])
+        sigma <- sd(df$IBI[(i - 9):i])
+        
+        # Generate new IBI value
+        new_IBI <- rnorm(1, mean = mu, sd = sigma)
+        cat("Generated new IBI:", new_IBI, "\n")
+        
+        # Insert the new IBI value to the gap
+        df <- df %>% add_row(IBI = new_IBI, .before = i + 1)
+        
+        # Insert new Timestamps to the inserted new IBI
+        T_end <- df$Timestamps[i + 2]
+        new_time <- T_end - df$IBI[i + 2]
+        df$Timestamps[i + 1] <- new_time
+        cat("New Timestamps value inserted:", new_time, "\n")
+        
+        # Check conditions for the new IBI
+        deviations <- compute_deviation(new_IBI, df$IBI[i - 1], df$IBI[i + 1])
+        
+        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) &&
+            deviations$E_l <= E_10 && deviations$E_r <= E_10 &&
+            new_IBI >= 0.3 && new_IBI <= 1.3) {
+          # Conditions are met, continue to next gap
+          break
+        }
+        
+        # Conditions not met, remove the inserted IBI and try again
+        cat("Conditions not met, retrying...\n")
+        df <- df[-(i + 1), ] # Remove the observation
+        attempt_count <- attempt_count + 1
+        sigma <- sigma * 1.05  # Loosen the requirements slightly
+      }
+      
+      # If maximum attempts reached without success, skip to next interval
+      if (attempt_count == max_attempts) {
+        cat("Exceeded maximum attempts. Skipping this gap.\n")
+        break
+      }
+    }
+    i <- i + 1
+  }
+  
+  # Convert IBI and Time from seconds back to milliseconds
+  df <- df %>% mutate(IBI = round((IBI * 1000),0), Timestamps = round((Timestamps * 1000),0))
+  
+  # Fill out the empty Time 
+  df <- df %>%
+  mutate(
+    Time = ifelse(is.na(Time), # check NA value
+                  sprintf("%02d:%02d:%02d.%03d", 
+                          Timestamps %/% (60*60*1000),                      # Hours
+                          (Timestamps %/% (60*1000)) %% 60,                  # Minutes
+                          (Timestamps %/% 1000) %% 60,                       # Seconds
+                          Timestamps %% 1000),                               # Milliseconds
+                  Time)  # If not NA, keep the existing value
+  )
+  
+  # Fill out the Date
+  df <- df %>%
+  fill(Date, .direction = "downup")  # Fills down first, then up if needed
+  
+  # Return the dataframe result
+  return(df)
+}
+```
+
+### Test dataset
+
+```{r}
+# input the directory
+directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp/59503/Type_2_Data" 
+# change the directory with the current directory
+
+# input the file path
+file <- c("bbb_vitals_2024-06-29_13-02-26.csv") 
+# change the directory with the current directory
+
+# file path
+full_file_path <- file.path(directory, file)
+  
+# read the CSV file
+data_original59503 <- data.table::fread(full_file_path)
+```
+
+```{r}
+# apply the helper function to one dataset
+data_filtered59503 <- filtering(data_original59503) 
+```
+
+```{r}
+# subset the data (turned off for testing purpose)
+# check for smaller dataset such as 300, 1000, 5000, 15000, ...., max observation
+# extract4a <- data_filtered59503[1:300, ]
+# imputed_extract4a <- impute_IBI_intervals(extract4a)
+```
+
+```{r}
+# apply the imputation code
+data_imputed59503 <- impute_IBI_intervals(data_filtered59503)
+```
+
+```{r}
+# check the summary of filtered data
+summary(data_original59503$IBI)
+dim(data_original59503)
+head(data_original59503)
+
+# check the summary of data before imputation
+summary(data_filtered59503$IBI)
+dim(data_filtered59503)
+head(data_filtered59503)
+
+# check the summary of data after imputation
+summary(data_imputed59503$Timestamps)
+summary(data_imputed59503$IBI)
+dim(data_imputed59503)
+head(data_imputed59503)
+```
+
+```{r}
+# save the imputed datasets
+output_file <- paste0("59503_imputed.txt")
+
+# Full output file path
+output_file_path <- file.path(directory, output_file)
+
+# Save the processed data
+write.table(data_imputed59503, file = output_file_path, row.names = FALSE, col.names = TRUE)
+```
+
+### Apply the imputation function to the dataset
+
+Note: You need to change the file path with the current file path of the data you are currently working on. 
+
+### Participant 38190
+
+```{r}
+# input the directory
+directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp/38190/Type_2_Data" 
+# change the directory with the current directory
+
+# input the file path
+file <- c("bbb_vitals_2024-07-06_13-10-54.csv") 
+# change the directory with the current directory
+
+# file path
+full_file_path <- file.path(directory, file)
+  
+# read the CSV file
+data_original38190 <- data.table::fread(full_file_path)
+```
+
+```{r}
+# apply the helper function to one dataset
+data_filtered38190 <- filtering(data_original38190) 
+```
+
+```{r}
+# subset the data (turned off for testing purpose)
+# check for smaller dataset such as 300, 1000, 5000, 15000, ...., max observation
+# extract4a <- data_filtered[1:190674, ]
+```
+
+```{r}
+# apply the imputation code
+data_imputed38190 <- impute_IBI_intervals(data_filtered38190)
+```
+
+```{r}
+# check the summary of filtered data
+summary(data_original38190$IBI)
+dim(data_original38190)
+head(data_original38190)
+
+# check the summary of data before imputation
+summary(data_filtered38190$IBI)
+dim(data_filtered38190)
+head(data_filtered38190)
+
+# check the summary of data after imputation
+summary(data_imputed38190$Timestamps)
+summary(data_imputed38190$IBI)
+dim(data_imputed38190)
+head(data_imputed38190)
+```
+
+```{r}
+# save the imputed datasets
+output_file <- paste0("38190_imputed.txt")
+
+# Full output file path
+output_file_path <- file.path(directory, output_file)
+
+# Save the processed data
+write.table(data_imputed38190, file = output_file_path, row.names = FALSE, col.names = TRUE)
+```
+
+### Participant 19686
+
+```{r}
+# input the directory
+directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp/19686/Type_2_Data" 
+# change the directory with the current directory
+
+# input the file path
+file <- c("bbb_vitals_2024-07-17_13-44-34.csv") 
+# change the directory with the current directory
+
+# file path
+full_file_path <- file.path(directory, file)
+  
+# read the CSV file
+data_original19686 <- data.table::fread(full_file_path)
+```
+
+```{r}
+# apply the helper function to one dataset
+data_filtered19686 <- filtering(data_original19686) 
+```
+
+```{r}
+# subset the data (turned off for testing purpose)
+# check for smaller dataset such as 300, 1000, 5000, 15000, ...., max observation
+# extract4a <- data_filtered[1:190674, ]
+```
+
+```{r}
+# apply the imputation code
+data_imputed19686 <- impute_IBI_intervals(data_filtered19686)
+```
+
+```{r}
+# check the summary of filtered data
+summary(data_original19686$IBI)
+dim(data_original19686)
+head(data_original19686)
+
+# check the summary of data before imputation
+summary(data_filtered19686$IBI)
+dim(data_filtered19686)
+head(data_filtered19686)
+
+# check the summary of data after imputation
+summary(data_imputed19686$Timestamps)
+summary(data_imputed19686$IBI)
+dim(data_imputed19686)
+head(data_imputed19686)
+```
+
+```{r}
+# save the imputed datasets
+output_file <- paste0("19686_imputed.txt")
+
+# Full output file path
+output_file_path <- file.path(directory, output_file)
+
+# Save the processed data
+write.table(data_imputed19686, file = output_file_path, row.names = FALSE, col.names = TRUE)
+```
+
+### Code Archive
+
+```{r}
+impute_IBI_intervals <- function(df) {
+  
+  # library
+  library(dplyr)
+  library(tidyr)
+  
+  # Separate time into hours, minutes, seconds, and milliseconds, then calculate Timestamps
+  df <- df %>%
+    mutate(Temp = Time) %>%  # Create a temporary column to split
+    separate(Temp, into = c("hours", "minutes", "sec_millisec"), sep = ":") %>%
+    separate(sec_millisec, into = c("seconds", "milliseconds"), sep = "\\.") %>%
+    mutate(across(c(hours, minutes, seconds, milliseconds), as.integer)) %>%
+    mutate(
+      hours = hours * 60 * 60 * 1000,
+      minutes = minutes * 60 * 1000,
+      seconds = seconds * 1000,
+      Timestamps = hours + minutes + seconds + milliseconds
+  ) %>%
+  select(-hours, -minutes, -seconds, -milliseconds)  # Remove intermediate columns
+  
+  # Convert IBI and Time from milliseconds to seconds
+  df <- df %>% mutate(IBI = IBI / 1000, Timestamps = Timestamps / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$IBI[i:(i + 10)] - df$IBI[(i - 1):(i + 9)]) / df$IBI[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Helper function to compute deviation E_r and E_l
+  compute_deviation <- function(IBI_j, IBI_prev, IBI_next) {
+    E_l <- abs((IBI_j - IBI_prev) / IBI_prev)
+    E_r <- abs((IBI_next - IBI_j) / IBI_j)
+    return(list(E_l = E_l, E_r = E_r))
+  }
+  
+  # Iterate over IBI intervals
+  i <- 1
+  while (i < nrow(df)) {
+    cat("Iteration:", i, "\n")
+    
+    # Check if the time difference > 1.3 and not equal to IBI[i+1]
+    while (!is.na(df$Timestamps[i]) && !is.na(df$Timestamps[i + 1]) && (df$Timestamps[i + 1] - df$Timestamps[i]) > 1.3) {
+      
+      # Skip the gap if there are not enough previous IBI intervals
+      if (i - 9 <= 0) {
+        cat("Not enough previous IBI intervals, skipping gap.\n")
+        break
+      }
+      
+      attempt_count <- 0
+      inserted_data_count <- 0
+      repeat {
+        # Use mean and std deviation from 10 previous observations
+        mu <- mean(df$IBI[(i - 9):i])
+        sigma <- sd(df$IBI[(i - 9):i])
+        
+        # Generate new IBI value
+        new_IBI <- rnorm(1, mean = mu, sd = sigma)
+        cat("Generated new IBI:", new_IBI, "\n")
+        
+        # Insert the new IBI value to the gap
+        df <- df %>% add_row(IBI = new_IBI, .before = i + 1)
+        inserted_data_count <- inserted_data_count + 1
+        
+        # Insert new Timestamps to the inserted new IBI
+        T_end <- df$Timestamps[i + 2]
+        new_time <- T_end - df$IBI[i + 2]
+        df$Timestamps[i + 1] <- new_time
+        cat("New Timestamps value inserted:", new_time, "\n")
+        
+        # Check conditions for the new IBI
+        deviations <- compute_deviation(new_IBI, df$IBI[i - 1], df$IBI[i + 1])
+        E_10 <- compute_E_10(df, i)
+        
+        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) && deviations$E_l <= E_10 &&  deviations$E_r <= E_10 &&
+            new_IBI >= 0.3 && new_IBI <= 1.3) {
+          # Conditions are met, continue to next gap
+          break
+        }
+        
+        # Conditions not met, retry
+        attempt_count <- attempt_count + 1
+        if (attempt_count > 3) {
+          cat("Exceeded maximum attempts.\n")
+          if (inserted_data_count == 1) {
+            df <- df[-(i + 1), ] # Remove one observation
+          } else {
+            df <- df[-((i + 1):(i + 2)), ] # Remove two observations
+            for (j in 1:4) {
+              E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
+            }
+          }
+          break
+        }
+        
+        cat("Conditions not met, retrying...\n")
+        df <- df[-(i + 1), ] # Remove observation
+        inserted_data_count <- inserted_data_count - 1
+        E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
+      }
+    }
+    i <- i + 1
+  }
+  
+  # Convert IBI and Time from seconds back to milliseconds
+  df <- df %>% mutate(IBI = IBI * 1000, Timestamps = Timestamps * 1000)
+  
+  # Return the dataframe result
+  return(df)
+}
+
+```
