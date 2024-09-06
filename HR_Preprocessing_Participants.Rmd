@@ -1,0 +1,1297 @@
+---
+title: "HR Preprocessing"
+author: "Aulia Dini Rafsanjani"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file contains the code for preprocessing heart rate data, particularly focusing on the exploration of artifacts. Artifacts refer to heart rate data affected by movement or other activities unrelated to physiological conditions. These artifacts need to be addressed during preprocessing. This code provides descriptive statistics related to artifacts from our test participants. After exploring the artifacts, filtering and imputation processes are required. This file includes a draft version of the filtering and imputation procedures.
+
+The file naming in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
+
+### Goal
+
+This code aims to : 
+
+1. Check the count and percentage of ectopic beats based on threshold (< 0.3s and > 1.3s) VS the category of artifacts (category U and I) from the device. The statistics is computed for overall days and per-day statistics. 
+
+2. Apply filtering and imputation to the heart rate data based on paper by :
+
+Benchekroun M, Chevallier B, Istrate D, Zalc V, Lenne D. Preprocessing Methods for Ambulatory HRV Analysis Based on HRV Distribution, Variability and Characteristics (DVC). Sensors (Basel). 2022 Mar 3;22(5):1984. doi: 10.3390/s22051984. PMID: 35271128; PMCID: PMC8914897.
+
+### Meeting on May 20th, 2024
+
+1. Compute how many artifacts that are overalapped between paper and device. 
+
+2. Compute correlation between the artifacts from paper and time-of-day. 
+
+3. Re-check the filtering code. 
+
+### Meeting on May 22nd, 2024
+
+1. Compute correlation between the artifacts from paper and time-of-day (trend for each day). 
+
+### Meeting on June 3rd, 2024
+
+Create the additional condition of the filtering loop :
+
+1. If the final RR > 1.3 s, delete it --> To handle the issue from Mary and Ben data. 
+
+2. If the final RR is within the accepted range of 0.3s - 1.3s, leave it as it is. 
+
+3. If the final RR < 0.3s, do left merge only. If the result of the left merge is <0.3s, do left merge again. If the result of left merge > 1.3 s, remove it. --> To handle the issue from Marie-Anne data. 
+
+### Meeting on June 10th, 2024
+
+Start coding for imputation. 
+
+### Meeting on June 17th, 2024. 
+
+1. First ten observation issue --> Skip the gap, don't do any imputation if the prior observations are less than 10. 
+
+2. Should the condition check happen for each observation or after the whole imputed observation finished? --> Condition check was done for each observation, not for the whole imputed observation. 
+
+### Meeting on June 24th, 2024
+
+1. Improve the conditions check, accomodate this conditions: If the imputed observation does not fulfill the conditions check, we should remove that observation and one previous observation. 
+
+### Meeting on July 8, 2024
+
+Apply the preprocessing, filtering and imputation code to the real participants. 
+
+### Meeting on July 15, 2024
+
+1. Divide the time-to-day pattern into two categories : <0.3s and >1.3s. 
+
+2. Create code for aggregate of all participants (summary statistics). 
+
+### Library
+
+```{r, warning=FALSE, message=FALSE}
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+```
+### Overall summary statistics
+
+```{r, warning=FALSE, message=FALSE}
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Define participant IDs
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+result_df3 <- data.frame()
+plots_list <- list()
+
+for (participant_id in participant_ids) {
+  
+  # Construct file path for each participant
+  full_file_path <- file.path(base_directory, participant_id, paste0(participant_id, "_advhrv.txt"))
+ 
+  # Read the CSV file
+  data <- fread(full_file_path, sep = "\t")
+  
+  # Change column name
+  colnames(data)[4] <- "category"
+  
+  # Create table of category percentages
+  table1 <- data %>%
+    summarise(count = n(), 
+              time_days = round((max(Time)/(1000*86400)),1), # duration in days
+              time_hours = round((max(Time)/(1000*3600)),1)) %>% # duration in hours
+    mutate(data_name = participant_id)
+  
+  
+  # Create table of RR summary (in seconds)
+  table2 <- data %>%
+    summarise(minimum = round((min(RR)/1000),2),
+              q1 = round((quantile(RR, 0.25)/1000),2),
+              median = round((median(RR)/1000),2),
+              q3 = round((quantile(RR, 0.75)/1000),2),
+              maximum = round((max(RR)/1000),2), 
+              mean = round((mean(RR)/1000),2), 
+              sd = round((((sd(RR))/1000)),2)) %>%
+    mutate(data_name = participant_id)
+  
+  # Create table of category percentages # interest is in category U and I
+  table3 <- data %>%
+    group_by(category) %>%
+    summarize(percentage =round((n() / nrow(data) * 100),3)) %>%
+    mutate(data_name = participant_id)
+  
+  # Create a line plot for each file
+  plot <- ggplot(data = data, aes(x = Time, y = RR)) +
+    geom_line() +  
+    labs(x = "Time", y = "RR") +  # Label x and y axes
+    ggtitle(paste("Heart Rate vs. Time -", participant_id)) +  
+    theme_minimal()  
+  
+  # Append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+  result_df3 <- bind_rows(result_df3, table3)
+  
+  # Store the plot in the list
+  plots_list[[participant_id]] <- plot
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", "count", "time_days", "time_hours")]
+result_df1
+
+result_df2 <- result_df2[, c("data_name", "minimum", "q1", "median", "q3", "maximum", "mean", "sd")]
+result_df2
+
+result_df3 <- result_df3[, c("data_name", "category", "percentage")]
+wide_result_df3 <- pivot_wider(result_df3, names_from = category, values_from = percentage)
+colnames(wide_result_df3)[2:ncol(wide_result_df3)] <- paste0("Percent ", colnames(wide_result_df3)[2:ncol(wide_result_df3)])
+wide_result_df3
+
+# plots_list
+```
+
+Note:
+
+- N is Normal, S is Supraventricular, U is Unclassified, V is Ventricular, I is Artifact.
+
+Findings:
+
+- There is one extreme high value from R's 59503 with the RR value of 624.76s and from R's 19003 with the RR value of 56.05s. 
+
+### Compute summary statistics for overall dataset
+
+Note:
+
+To compute the summary of overall dataset, I compute the statistics based on the previous summary. This method works for minimum, median, mean, and maximum, but I need to think more about quartiles and standard deviation. 
+
+```{r}
+summary_overall <- result_df2 %>%
+  summarise(min_of_min=min(minimum, na.rm = TRUE), 
+            med_of_med=median(median, na.rm = TRUE),
+            mean_of_mean = mean(mean, na.rm = TRUE),
+            max_of_max=max(maximum, na.rm = TRUE))
+
+summary_overall
+```
+
+### Answer the 1st goal
+
+### Compute Count and Percentage of artifacts (Overall)
+
+```{r, warning=FALSE, message=FALSE}
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Define participant IDs
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+
+for (participant_id in participant_ids) {
+ 
+  # Construct file path for each participant
+  full_file_path <- file.path(base_directory, participant_id, paste0(participant_id, "_advhrv.txt"))
+ 
+  # Read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+ 
+  # Change column name
+  colnames(df)[4] <- "category"
+ 
+  # Convert RR into seconds
+  df$RR_second <- df$RR / 1000
+ 
+  # Create table of category percentages
+  table1 <- df %>%
+    summarise(
+      count_below_0.3 = sum(RR_second < 0.3),
+      count_above_1.3 = sum(RR_second > 1.3),
+      count_paper = count_below_0.3 + count_above_1.3,
+      percent_below_0.3 = round((mean(RR_second < 0.3) * 100), 2),
+      percent_above_1.3 = round((mean(RR_second > 1.3) * 100), 2),
+      percent_paper = percent_below_0.3 + percent_above_1.3) %>%
+    mutate(data_name = participant_id)
+ 
+  # Create table of RR summary (in seconds)
+  table2 <- df %>%
+    summarise(
+      count_U = sum(category == "U"), # U is unclassified
+      count_I = sum(category == "|"),
+      count_device = count_U + count_I,
+      percent_U = round((mean(category == "U") * 100), 2),
+      percent_I = round((mean(category == "|") * 100), 2),
+      percent_device = percent_U + percent_I) %>%
+    mutate(data_name = participant_id)
+ 
+  # Append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+
+}
+
+# Set the column name of df1
+result_df1 <- result_df1[, c("data_name", "count_below_0.3", "count_above_1.3", "count_paper", "percent_below_0.3" , "percent_above_1.3", "percent_paper")]
+print(result_df1)
+
+# Set the column name of df2
+result_df2 <- result_df2[, c("data_name", "count_U", "count_I", "count_device", "percent_U", "percent_I", "percent_device")]
+print(result_df2)
+
+# Subset the data frames
+df1_subset <- result_df1 %>% select(data_name, count_below_0.3, count_above_1.3, count_paper, percent_below_0.3 , percent_above_1.3, percent_paper)
+df2_subset <- result_df2 %>% select(data_name, count_device, percent_device)
+
+# Merge the subsetted data frames
+merged_df <- left_join(df1_subset, df2_subset, by = "data_name")
+print(merged_df)
+```
+Note:
+
+- Based on paper, artifacts is defined by the RR that is below 1.3s or RR that is higher than 1.3s. 
+
+- Based on device, artifacts is defined by "|" symbol and "U" symbol, among five categories N,S,U,V,I. 
+
+Finding : 
+
+- The proportion of artifacts for participant 19003 is higher than other participant, with the percentage of 11.62% (based on threshold from paper <0.3s and > 1.3s) and 14.7% (based on five categorization from the device). 
+
+### Compute Count and Percentage of artifacts (Per hours)
+
+To compute the artifacts per hour, I compute total hours per person (variable name: max_hours) then I divide the count and percentage of artifacts with the max_hours. The result should be smaller than count and percentage of artifacts for overall hours. 
+
+```{r, warning=FALSE, message=FALSE}
+# Define directory and file list
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Set the file list
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# Set the output
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # File path
+  full_file_path <- file.path(base_directory, participant_id, paste0(participant_id, "_advhrv.txt"))
+  
+  # Read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+  
+  # Change column name
+  colnames(df)[4] <- "category"
+  
+  # convert RR into seconds
+  df$RR_second = df$RR / 1000
+  
+  # compute hours per person
+  max_hours = max(df$Time)/(1000*3600)
+  
+  # Create table of category percentages
+  table1 <- df %>%
+  summarise(
+    count_below_0.3 = round(((sum(RR_second < 0.3))/max_hours),2),
+    count_above_1.3 = round(((sum(RR_second > 1.3))/max_hours),2),
+    count_paper = count_below_0.3 + count_above_1.3,
+    percent_below_0.3 = round((mean(RR_second < 0.3) * 100)/max_hours,4),
+    percent_above_1.3 = round((mean(RR_second > 1.3) * 100)/max_hours,4),
+    percent_paper = percent_below_0.3 + percent_above_1.3) %>%
+    mutate(data_name = participant_id)
+  
+  # Create table of RR summary (in seconds)
+  table2 <- df %>%
+  summarise(
+    count_U = round((sum(category=="U")/max_hours),2),
+    count_I = round((sum(category=="|")/max_hours),2),
+    count_device = count_U + count_I,
+    percent_U = round((mean(category=="U") * 100)/max_hours,4), 
+    percent_I = round((mean(category=="|") * 100)/max_hours,4), 
+    percent_device = percent_U + percent_I) %>%
+    mutate(data_name = participant_id)
+  
+  # Append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+
+}
+
+# Set the column name of result 1
+result_df1 <- result_df1[, c("data_name", "count_below_0.3", "count_paper", "count_above_1.3", "percent_below_0.3" , "percent_above_1.3", "percent_paper")]
+# Print the result
+result_df1
+
+# Set the column name of result 2
+result_df2 <- result_df2[, c("data_name", "count_U", "count_I", "count_device", "percent_U", "percent_I", "percent_device")]
+# Print the result
+result_df2
+
+# Merge the subsetted data frames
+df1_subset <- result_df1 %>% select(data_name, count_below_0.3, count_above_1.3, count_paper, percent_below_0.3 , percent_above_1.3, percent_paper)
+df2_subset <- result_df2 %>% select(data_name, count_device, percent_device)
+merged_df <- left_join(df1_subset, df2_subset, by = "data_name")
+# Print the result
+merged_df
+```
+
+Findings:
+
+- The proportion of artifacts per hour is higher in participant 19003 in compare to other participants. 
+
+### Follow up : Check how many artifacts based on thresholds that is overlapped with the artifacts from the device flags. 
+
+Note :
+
+Artifacts from paper is defined by threshold < 0.3 s or > 1.3 s. 
+
+Artifacts from device is defined by category U and I. U is unclassified. 
+
+```{r, warning=FALSE, message=FALSE}
+# Define directory and file list
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Define participant IDs
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# define the results
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # File path
+  full_file_path <- file.path(base_directory, participant_id, paste0(participant_id, "_advhrv.txt"))
+  
+  # Read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+  
+  # Change column name
+  colnames(df)[4] <- "category"
+  
+  # convert RR into seconds
+  df$RR_second = df$RR / 1000
+  
+  # create dummy to define artifacts criteria
+  df$dummy_thres <- ifelse(df$RR_second < 0.3 | df$RR_second > 1.3, 1, 0) # based on threshold in paper
+  df$dummy_device <- ifelse(df$category=="U" | df$category=="|", 1, 0) # based on device
+  df$dummy_both <- ifelse(df$dummy_device==1 & df$dummy_thres==1, 1, 0) # categorized as artifacts in both paper and device
+  
+  # compute count and percentages
+  table1 <- df %>%
+  summarise(count_paper = sum(dummy_thres==1),
+            count_device = sum(dummy_device==1), 
+            count_overlap = sum(dummy_both==1),
+            percent_paper = round((mean(dummy_thres) * 100),2),
+            percent_device = round((mean(dummy_device) * 100),2), 
+            percent_overlap = round((mean(dummy_both) * 100),2)
+            ) %>%
+    mutate(data_name = participant_id)
+  
+  # Append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+}
+
+# print the result
+result_df1 <- result_df1[, c("data_name", "count_paper", "count_device", "count_overlap", "percent_paper" , "percent_device", "percent_overlap")]
+result_df1
+```
+
+Findings:
+
+- There are some overlapped artifacts between the paper and the device. 
+
+- The overlapped proportion of artifacts is higher in participnat 19003 in compare to the other participant, with the value of 6.03%.
+
+### Follow up: Compute correlation of time-of-day and artifacts from paper. 
+
+### 1. Create helper function `process_time` to convert the Time (in milliseconds) to standard time format in HH:MM:SS.
+
+This is the helper function to convert the Time (in milliseconds) to standard time format in HH:MM:SS. The input of this helper function is the data itself and the initial time showed in the first line of the data. The 2nd helper function shows how to extract the initial time and then input it to this helper function. 
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(data.table)
+library(lubridate)
+
+process_time <- function(df, initial_time) {
+  
+  # set the initial time format
+  start_time <- as.POSIXct(initial_time, format = "%H:%M:%S")
+  
+  # convert the Time from milliseconds to seconds
+  df$time_seconds <- as.numeric(df$Time) / 1000
+  
+  # convert the RR from milliseconds to seconds
+  df$RR_second <- df$RR / 1000
+  
+  # create the clock time to convert the time in seconds to the clock format
+  df$clock_time <- start_time + df$time_seconds
+  
+  # extract the time only and exclude the date information
+  df$time_only <- format(df$clock_time, format = "%H:%M:%S")
+  
+  # categorize the time into 4 hour time-of-day 
+  df$cat_time <- fifelse(df$time_only >= "00:00:00" & df$time_only < "04:00:00", 1,
+                            fifelse(df$time_only >= "04:00:00" & df$time_only < "08:00:00", 2,
+                                    fifelse(df$time_only >= "08:00:00" & df$time_only < "12:00:00", 3,
+                                            fifelse(df$time_only >= "12:00:00" & df$time_only < "16:00:00", 4,
+                                                    fifelse(df$time_only >= "16:00:00" & df$time_only < "20:00:00", 5,
+                                                            fifelse(df$time_only >= "20:00:00" & df$time_only < "24:00:00", 6, NA))))))
+  
+  # create dummy for artifacts coded as 1 if RR < 0.3 s or RR > 1.3 s
+  df$dummy_thres <- ifelse(df$RR_second < 0.3 | df$RR_second > 1.3, 1, 0)
+  df$dummy_thres_low <- ifelse(df$RR_second < 0.3, 1, 0) # categorize into low artifacts
+  df$dummy_thres_high <- ifelse(df$RR_second > 1.3, 1, 0) # and high artifacts
+  
+  return(df)
+}
+```
+
+### 2. Create helper function to extract the start time for each dataset. 
+
+The result of this helper function is start time for each participant with format of HH:MM:SS. I set the time format into 24 hour so that the conversion to the time-of-day is easier.
+
+```{r, warning=FALSE, message=FALSE}
+library(data.table)
+
+# Define base directory path
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Define participant IDs
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# Initialize a list to store start times
+start_times_list <- list()
+
+# Iterate over each participant ID
+for (participant_id in participant_ids) {
+  
+    # Define the directory for the current participant
+    directory <- file.path(base_directory, participant_id)
+    
+    # List all files in the directory
+    file_list <- list.files(directory, pattern = "_advhrv.txt$", full.names = TRUE)
+    
+    # Check if there are files in the directory
+    if (length(file_list) > 0) {
+        
+        for (i in seq_along(file_list)) {
+            
+            # File path
+            full_file_path <- file_list[i]
+            
+            # Read the first line to get the recording start time
+            first_line <- tryCatch({
+                readLines(full_file_path, n = 1)
+            }, error = function(e) {
+                NA
+            })
+            
+            if (!is.na(first_line)) {
+                
+                # Extract the recording start time
+                time_pattern <- "Recording start time:\\s*(\\d{1,2}:\\d{2}:\\d{2}\\s*[AP]M)"
+                start_time <- sub(time_pattern, "\\1", first_line)
+                
+                # Reformat the start time into 24-hour format
+                start_time_24h <- format(strptime(start_time, "%I:%M:%S %p"), "%H:%M:%S")
+                
+                # Append the start time to the main list
+                start_times_list <- c(start_times_list, list(start_time_24h))
+                
+            } else {
+                
+                # Handle case where first line could not be read
+                start_times_list <- c(start_times_list, list(NA))
+            }
+        }
+        
+    } else {
+        
+        # Handle case where no files are found for the participant
+        start_times_list <- c(start_times_list, list(NA))
+    }
+}
+
+# Print the list of start times
+print(start_times_list)
+```
+
+### 3rd. Create helper function to compute count_artifacts and percent_artifacts in each time-of-day
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(tidyr)
+library(dplyr)
+
+# define directory and file list
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# initial times
+initial_times <- start_times_list
+
+# define the result data frame
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+
+# Iterate for each participant
+for (participant_id in participant_ids){
+  
+  # Define the directory for the current participant
+  directory <- file.path(base_directory, participant_id)
+  
+  # List all relevant files in the directory
+  file_list <- list.files(directory, pattern = "_advhrv.txt$", full.names = TRUE)
+  
+  for (i in seq_along(file_list)) {
+  
+  # file path
+  full_file_path <- file_list[i]
+  
+  # read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+  
+  # change column name
+  colnames(df)[4] <- "category"
+  
+  # process the data, this is the result from the first and second helper function
+  df <- process_time(df, initial_times[[i]])
+  
+  # compute count and percentages
+  table1 <- df %>%
+            group_by(cat_time) %>%
+            summarise(count_artifacts = sum(dummy_thres)) %>%
+    mutate(data_name = participant_id )
+  
+    # compute count and percentages
+  table2 <- df %>%
+            group_by(cat_time) %>%
+            summarise(percent_artifacts = round((sum(dummy_thres) / sum(df$dummy_thres) * 100),2)) %>%
+    mutate(data_name = participant_id)
+  
+  # append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+  }
+}
+
+# reshape result to wide format
+df1_wide <- result_df1 %>%
+  pivot_wider(names_from = cat_time, values_from = count_artifacts, values_fill = list(count_artifacts = 0))
+colnames(df1_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# reshape result to wide format
+df2_wide <- result_df2 %>%
+  pivot_wider(names_from = cat_time, values_from = percent_artifacts, values_fill = list(percent_artifacts = 0))
+colnames(df2_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# print the result
+print(df1_wide)
+print(df2_wide)
+```
+
+### 4th. Create plot to visualize count_artifacts and percent artifacts (overall)
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(tidyverse)
+
+# plot for count_artifacts
+# convert data from wide format to long format
+df1_long <- df1_wide %>%
+  pivot_longer(
+    cols = starts_with("cat_time"),
+    names_to = "cat_time",
+    values_to = "count_artifacts"
+  ) %>%
+  mutate(cat_time = as.numeric(str_replace(cat_time, "cat_time_", "")))
+
+# create plot
+ggplot(df1_long, aes(x = cat_time, y = count_artifacts, fill = data_name)) +
+  geom_col() +
+  facet_wrap(~ data_name, scales = "free_y") +
+  labs(title = "Count of Artifacts by Categorized Time for Each Dataset",
+       x = "Categorized Time-of-Day",
+       y = "Count of Artifacts") +
+  scale_x_continuous(breaks = 1:6, labels = 1:6) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# plot for percent_artifacts
+# convert data from wide format to long format
+df2_long <- df2_wide %>%
+  pivot_longer(
+    cols = starts_with("cat_time"),
+    names_to = "cat_time",
+    values_to = "percent_artifacts"
+  ) %>%
+  mutate(cat_time = as.numeric(str_replace(cat_time, "cat_time_", "")))
+
+# create plot
+ggplot(df2_long, aes(x = cat_time, y = percent_artifacts, fill = data_name)) +
+  geom_col() +
+  facet_wrap(~ data_name, scales = "free_y") +
+  labs(title = "Percent of Artifacts by Categorized Time for Each Dataset",
+       x = "Categorized Time-of-Day",
+       y = "Percent of Artifacts") +
+  scale_x_continuous(breaks = 1:6, labels = 1:6) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+Note :
+
+- Y-axis shows the count and percentage of artifacts, X-axis shows the time-of-day with category 1 for (00:00:00-04:00:00), category 2 for (04:00:00-08:00:00), category 3 for (00:08:00-12:00:00), category 4 for (12:00:00-16:00:00), category 5 for (16:00:00-20:00:00), category 6 for (20:00:00-24:00:00). 
+
+Findings for count_artifacts:
+
+- The distribution of count_artifacts for participant is high in certain times. The high peak is different for each participant. 
+
+Findings for percent_artifacts:
+
+- The distribution of percent_artifacts for participant is high in certain times. The high peak is different for each participant. 
+
+- This result is consistent with the count_artifacts.
+
+- The pattern of artifacts is random. 
+
+### Create Time-of-Day artifacts pattern based on two categories : < 0.3s and > 1.3 s
+
+We need to create new table that divide the artifacts into : artifacts_low ( < 0.3 s) and artifacts_high (> 1.3 s)
+
+### Create table
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(tidyr)
+library(dplyr)
+
+# define directory and file list
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# initial times
+initial_times <- start_times_list
+
+# define the result data frame
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+result_df3 <- data.frame()
+result_df4 <- data.frame()
+
+# Iterate for each participant
+for (participant_id in participant_ids){
+  
+  # Define the directory for the current participant
+  directory <- file.path(base_directory, participant_id)
+  
+  # List all relevant files in the directory
+  file_list <- list.files(directory, pattern = "_advhrv.txt$", full.names = TRUE)
+  
+  for (i in seq_along(file_list)) {
+  
+  # file path
+  full_file_path <- file_list[i]
+  
+  # read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+  
+  # change column name
+  colnames(df)[4] <- "category"
+  
+  # process the data, this is the result from the first and second helper function
+  df <- process_time(df, initial_times[[i]])
+  
+  # compute count for artifacts < 0.3 s
+  table1 <- df %>%
+            group_by(cat_time) %>%
+            summarise(count_artifacts_low = sum(dummy_thres_low)) %>%
+    mutate(data_name = participant_id)
+  
+  # compute count for artifacts > 1.3 s
+  table2 <- df %>%
+            group_by(cat_time) %>%
+            summarise(count_artifacts_high = sum(dummy_thres_high)) %>%
+    mutate(data_name = participant_id)
+  
+  # compute percentages for artifacts < 0.3 s
+  table3 <- df %>%
+            group_by(cat_time) %>%
+            summarise(percent_artifacts_low = round((sum(dummy_thres_low) / sum(df$dummy_thres_low) * 100),2)) %>%
+    mutate(data_name = participant_id)
+  
+  # compute percentages for artifacts > 1.3 s
+  table4 <- df %>%
+            group_by(cat_time) %>%
+            summarise(percent_artifacts_high = round((sum(dummy_thres_high) / sum(df$dummy_thres_high) * 100),2)) %>%
+    mutate(data_name = participant_id)
+  
+  # append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+  result_df3 <- bind_rows(result_df3, table3)
+  result_df4 <- bind_rows(result_df4, table4)
+  }
+}
+
+# reshape result to wide format
+df1_wide <- result_df1 %>%
+  pivot_wider(names_from = cat_time, values_from = count_artifacts_low, values_fill = list(count_artifacts_low = 0))
+colnames(df1_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# reshape result to wide format
+df2_wide <- result_df2 %>%
+  pivot_wider(names_from = cat_time, values_from = count_artifacts_high, values_fill = list(count_artifacts_high = 0))
+colnames(df2_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# reshape result to wide format
+df3_wide <- result_df3 %>%
+  pivot_wider(names_from = cat_time, values_from = percent_artifacts_low, values_fill = list(percent_artifacts_low = 0))
+colnames(df3_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# reshape result to wide format
+df4_wide <- result_df4 %>%
+  pivot_wider(names_from = cat_time, values_from = percent_artifacts_high, values_fill = list(percent_artifacts_high = 0))
+colnames(df4_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# print the result
+print(df1_wide)
+print(df2_wide)
+print(df3_wide)
+print(df4_wide)
+```
+
+### Create plot of artifacts (by category of low VS high) by time-to-day
+
+### Plot of count
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+# Combine the data frames and reshape them to long format
+df1_long <- df1_wide %>%
+  pivot_longer(cols = starts_with("cat_time_"), names_to = "cat_time", values_to = "count_artifacts_low")
+
+df2_long <- df2_wide %>%
+  pivot_longer(cols = starts_with("cat_time_"), names_to = "cat_time", values_to = "count_artifacts_high")
+
+combined_df <- df1_long %>%
+  left_join(df2_long, by = c("data_name", "cat_time"))
+
+# Convert cat_time to a factor for proper ordering in the plot
+combined_df$cat_time <- factor(combined_df$cat_time, levels = paste0("cat_time_", 1:6))
+
+# Reshape combined data to long format for plotting
+plot_df <- combined_df %>%
+  pivot_longer(cols = c(count_artifacts_low, count_artifacts_high), names_to = "variable", values_to = "value")
+
+# Reorder the variable factor so that 'count_artifacts_low' comes before 'count_artifacts_high'
+plot_df$variable <- factor(plot_df$variable, levels = c("count_artifacts_low", "count_artifacts_high"))
+
+# Create the bar plot
+ggplot(plot_df, aes(x = cat_time, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = position_dodge(preserve = "single", width = 0.9)) +
+  facet_wrap(~ data_name, scales = "free_y") +  # Allow each facet to have its own y-axis scale
+  labs(x = "Time Category", y = "Count of Artifacts", fill = "Artifact Type") +
+  scale_fill_manual(values = c("count_artifacts_low" = "blue", "count_artifacts_high" = "red")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+```
+### plot of percent
+
+```{r, warning=FALSE, message=FALSE}
+# Combine the data frames and reshape them to long format
+df3_long <- df3_wide %>%
+  pivot_longer(cols = starts_with("cat_time_"), names_to = "cat_time", values_to = "percent_artifacts_low")
+
+df4_long <- df4_wide %>%
+  pivot_longer(cols = starts_with("cat_time_"), names_to = "cat_time", values_to = "percent_artifacts_high")
+
+combined_df_percent <- df3_long %>%
+  left_join(df4_long, by = c("data_name", "cat_time"))
+
+# Convert cat_time to a factor for proper ordering in the plot
+combined_df_percent$cat_time <- factor(combined_df_percent$cat_time, levels = paste0("cat_time_", 1:6))
+
+# Reshape combined data to long format for plotting
+plot_df_percent <- combined_df_percent %>%
+  pivot_longer(cols = c(percent_artifacts_low, percent_artifacts_high), names_to = "variable", values_to = "value")
+
+# Reorder the variable factor so that 'count_artifacts_low' comes before 'count_artifacts_high'
+plot_df_percent$variable <- factor(plot_df_percent$variable, levels = c("percent_artifacts_low", "percent_artifacts_high"))
+
+# Create the bar plot
+ggplot(plot_df_percent, aes(x = cat_time, y = value, fill = variable)) +
+  geom_bar(stat = "identity", position = position_dodge(preserve = "single", width = 0.9)) +
+  facet_wrap(~ data_name, scales = "free_y") +  # Allow each facet to have its own y-axis scale
+  labs(x = "Time Category", y = "Percent of Artifacts", fill = "Artifact Type") +
+  scale_fill_manual(values = c("percent_artifacts_low" = "purple", "percent_artifacts_high" = "orange")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+```
+
+### Follow up : Create trend of artifacts by day and time-of-day
+
+### 1. Create helper function `process_date_time` to create trend of artifacts (by day and time-of-day)
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(data.table)
+library(lubridate)
+
+process_date_time <- function(df, initial_time) {
+
+# Set the initial time format
+start_time <- as.POSIXct(initial_time, format = "%Y-%m-%d %H:%M:%S")
+
+# Convert the Time from milliseconds to seconds
+df$time_seconds <- as.numeric(df$Time) / 1000
+
+# Convert the RR from milliseconds to seconds
+df$RR_second <- df$RR / 1000
+
+# Create the clock time to convert the time in seconds to the clock format
+df$clock_time <- start_time + df$time_seconds
+
+# Extract the date and time information
+df$date <- as.Date(df$clock_time)
+df$time_only <- format(df$clock_time, format = "%H:%M:%S")
+
+# Define the function to categorize the time into 6-hour intervals
+categorize_time <- function(time) {
+  if (time >= "00:00:00" & time < "04:00:00") {
+    return(1)
+  } else if (time >= "04:00:00" & time < "08:00:00") {
+    return(2)
+  } else if (time >= "08:00:00" & time < "12:00:00") {
+    return(3)
+  } else if (time >= "12:00:00" & time < "16:00:00") {
+    return(4)
+  } else if (time >= "16:00:00" & time < "20:00:00") {
+    return(5)
+  } else if (time >= "20:00:00" & time < "24:00:00") {
+    return(6)
+  } else {
+    return(NA)
+  }
+}
+
+# Apply the categorization function to the time_only column
+df$cat_time <- sapply(df$time_only, categorize_time)
+
+# Create a combined date and time category column
+df$cat_date_time <- paste(df$date, "time", df$cat_time, sep = "_")
+
+# create dummy for artifacts coded as 1 if RR < 0.3 s or RR > 1.3 s
+  df$dummy_thres <- ifelse(df$RR_second < 0.3 | df$RR_second > 1.3, 1, 0)
+  df$dummy_thres_low <- ifelse(df$RR_second < 0.3, 1, 0) # categorize into low artifacts
+  df$dummy_thres_high <- ifelse(df$RR_second > 1.3, 1, 0) # and high artifacts
+  
+  return(df)
+  
+}
+```
+
+### 2. Apply helper function `process_date_time` to test datasets. 
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(tidyr)
+library(dplyr)
+
+# Define base directory path
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Define participant IDs
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# initial times
+# Assuming initial_time is in "YYYY-MM-DD HH:MM:SS" format
+# This initial time should be generated from Sentinel manually
+initial_times <- list(
+  "2024-05-16 18:33:55",
+  "2024-04-11 16:24:33",
+  "2024-05-04 14:51:44",
+  "2024-06-28 16:01:49",
+  "2024-06-29 14:52:08",
+  "2024-07-01 21:37:43",
+  "2024-04-12 15:58:52"
+)
+
+# define the result data frame
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+
+for (participant_id in participant_ids){
+ 
+  # Define the directory for the current participant
+  directory <- file.path(base_directory, participant_id)
+ 
+  # List all relevant files in the directory
+  file_list <- list.files(directory, pattern = "_advhrv.txt$", full.names = TRUE)
+
+
+for (i in seq_along(file_list)) {
+  
+  # file path
+  full_file_path <-  file_list[i]
+  
+  # read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+  
+  # change column name
+  colnames(df)[4] <- "category"
+  
+  # process the data, this is the result from the first and second helper function
+  df <- process_date_time(df, initial_times[[i]])
+  
+  # compute count and percentages
+  table1 <- df %>%
+            group_by(cat_date_time) %>%
+            summarise(count_artifacts = sum(dummy_thres)) %>%
+    mutate(data_name = participant_id)
+  
+    # compute count and percentages
+  table2 <- df %>%
+            group_by(cat_date_time) %>%
+            summarise(percent_artifacts = round((sum(dummy_thres) / sum(df$dummy_thres) * 100),2)) %>%
+    mutate(data_name = participant_id)
+  
+  # append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+}
+}
+  
+
+# result_df1
+# result_df2
+
+# reshape result to wide format
+#df1_wide <- result_df1 %>%
+  #pivot_wider(names_from = cat_date_time, values_from = count_artifacts, values_fill = list(count_artifacts = 0))
+#colnames(df1_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# reshape result to wide format
+#df2_wide <- result_df2 %>%
+#  pivot_wider(names_from = cat_date_time, values_from = percent_artifacts, values_fill = list(percent_artifacts = 0))
+#colnames(df2_wide)[2:7] <- c("cat_time_1", "cat_time_2", "cat_time_3", "cat_time_4", "cat_time_5", "cat_time_6")
+
+# print the result
+#print(df1_wide)
+#print(df2_wide)
+```
+
+### Create plot of time-of-day for every person 
+
+### Plot of Count
+
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(gridExtra)
+
+df <- result_df1
+
+# Assuming your data frame is named `df`
+# Get the unique dataset names
+dataset_names <- unique(df$data_name)
+
+# Create a list to store the plots
+plot_list <- list()
+
+# Loop through each dataset name and create a plot
+for (dataset in dataset_names) {
+  
+  # Subset the data for the current dataset
+  subset_df <- df[df$data_name == dataset, ]
+  
+  # Create the plot
+  p <- ggplot(subset_df, aes(x = cat_date_time, y = count_artifacts, fill = data_name)) +
+    geom_col() +
+    labs(title = paste("Count of Artifacts:", dataset),
+         x = "Categorized Time-of-Day",
+         y = "Count of Artifacts") +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Add the plot to the list
+  plot_list[[dataset]] <- p
+}
+
+plot_list
+```
+
+### Plot of Percent
+
+```{r, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(gridExtra)
+
+df <- result_df2
+
+# Assuming your data frame is named `df`
+# Get the unique dataset names
+dataset_names <- unique(df$data_name)
+
+# Create a list to store the plots
+plot_list <- list()
+
+# Loop through each dataset name and create a plot
+for (dataset in dataset_names) {
+  
+  # Subset the data for the current dataset
+  subset_df <- df[df$data_name == dataset, ]
+  
+  # Create the plot
+  p <- ggplot(subset_df, aes(x = cat_date_time, y = percent_artifacts, fill = data_name)) +
+    geom_col(fill="grey") +
+    labs(title = paste("Percent of Artifacts:", dataset),
+         x = "Categorized Time-of-Day",
+         y = "Percent of Artifacts") +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Add the plot to the list
+  plot_list[[dataset]] <- p
+}
+
+plot_list
+```
+
+Findings:
+
+- The plots from R's 19003, 59503, 49314 show that the artifacts has a tendency to happen in the last days. 
+
+- The distribution of artifacts per day per time-to-day is random for other participants. 
+
+### Create plot of artifacts (low VS high) by time-of-day
+
+```{r, warning=FALSE, message=FALSE}
+# library
+library(tidyr)
+library(dplyr)
+
+# Define base directory path
+base_directory <- "O:/WorkLife-Data/biomonitors/holter_ecg"
+
+# Define participant IDs
+participant_ids <- c("18682", "19003", "43465", "49314", "59503", "85321", "86760")
+
+# initial times
+# Assuming initial_time is in "YYYY-MM-DD HH:MM:SS" format
+# This initial time should be generated from Sentinel manually
+initial_times <- list(
+  "2024-05-16 18:33:55",
+  "2024-04-11 16:24:33",
+  "2024-05-04 14:51:44",
+  "2024-06-28 16:01:49",
+  "2024-06-29 14:52:08",
+  "2024-07-01 21:37:43",
+  "2024-04-12 15:58:52"
+)
+
+# define the result data frame
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+result_df3 <- data.frame()
+result_df4 <- data.frame()
+
+for (participant_id in participant_ids){
+ 
+  # Define the directory for the current participant
+  directory <- file.path(base_directory, participant_id)
+ 
+  # List all relevant files in the directory
+  file_list <- list.files(directory, pattern = "_advhrv.txt$", full.names = TRUE)
+
+
+for (i in seq_along(file_list)) {
+  
+  # file path
+  full_file_path <-  file_list[i]
+  
+  # read the CSV file
+  df <- fread(full_file_path, sep = "\t")
+  
+  # change column name
+  colnames(df)[4] <- "category"
+  
+  # process the data, this is the result from the first and second helper function
+  df <- process_date_time(df, initial_times[[i]])
+  
+  # compute count of artifacts < 0.3s
+  table1 <- df %>%
+            group_by(cat_date_time) %>%
+            summarise(count_artifacts_low = sum(dummy_thres_low)) %>%
+    mutate(data_name = participant_id)
+  
+  # compute count of artifacts > 1.3 s
+  table2 <- df %>%
+            group_by(cat_date_time) %>%
+            summarise(count_artifacts_high = sum(dummy_thres_high)) %>%
+    mutate(data_name = participant_id)
+  
+  # compute percentages of artifacts < 0.3 s
+  table3 <- df %>%
+            group_by(cat_date_time) %>%
+            summarise(percent_artifacts_low = round((sum(dummy_thres_low) / sum(df$dummy_thres_low) * 100),2)) %>%
+    mutate(data_name = participant_id)
+  
+  # compute percentages of artifacts < 1.3 s
+  table4 <- df %>%
+            group_by(cat_date_time) %>%
+            summarise(percent_artifacts_high = round((sum(dummy_thres_high) / sum(df$dummy_thres_high) * 100),2)) %>%
+    mutate(data_name = participant_id)
+  
+  
+  # append the percentage table to the result data frame
+  result_df1 <- bind_rows(result_df1, table1)
+  result_df2 <- bind_rows(result_df2, table2)
+  result_df3 <- bind_rows(result_df3, table3)
+  result_df4 <- bind_rows(result_df4, table4)
+  
+}
+}
+  
+
+# result_df1
+# result_df2
+# result_df3
+# result_df4
+# 
+# # reshape result to wide format
+df1_wide <- result_df1 %>%
+pivot_wider(names_from = cat_date_time, values_from = count_artifacts_low, values_fill = list(count_artifacts_low = 0))
+# 
+# # reshape result to wide format
+df2_wide <- result_df2 %>%
+pivot_wider(names_from = cat_date_time, values_from = count_artifacts_high, values_fill = list(count_artifacts_high = 0))
+# 
+# # reshape result to wide format
+df3_wide <- result_df3 %>%
+pivot_wider(names_from = cat_date_time, values_from = percent_artifacts_low, values_fill = list(percent_artifacts_low = 0))
+# 
+# # reshape result to wide format
+df4_wide <- result_df4 %>%
+pivot_wider(names_from = cat_date_time, values_from = percent_artifacts_high, values_fill = list(percent_artifacts_high = 0))
+# 
+# # print the result
+# print(df1_wide)
+# print(df2_wide)
+# print(df3_wide)
+# print(df4_wide)
+```
+
+### Plot of Count
+
+```{r, warning=FALSE, message=FALSE}
+# Combine the data frames and reshape them to long format
+df1_long <- df1_wide %>%
+  pivot_longer(cols = -data_name, names_to = "cat_date_time", values_to = "count_artifacts_low")
+
+df2_long <- df2_wide %>%
+  pivot_longer(cols = -data_name, names_to = "cat_date_time", values_to = "count_artifacts_high")
+
+combined_df <- df1_long %>%
+  left_join(df2_long, by = c("data_name", "cat_date_time"))
+
+# Filter out zero-value periods
+combined_df <- combined_df %>%
+  filter(count_artifacts_low > 0 | count_artifacts_high > 0)
+
+# Reshape combined data to long format for plotting
+plot_df <- combined_df %>%
+  pivot_longer(cols = c(count_artifacts_low, count_artifacts_high), names_to = "variable", values_to = "value")
+
+# Reorder the variable factor
+plot_df$variable <- factor(plot_df$variable, levels = c("count_artifacts_low", "count_artifacts_high"))
+
+# Create individual plots for each dataset
+participant_ids <- unique(plot_df$data_name)
+
+for (participant in participant_ids) {
+  participant_df <- plot_df %>% filter(data_name == participant)
+  
+  p <- ggplot(participant_df, aes(x = cat_date_time, y = value, fill = variable)) +
+    geom_bar(stat = "identity", position = position_dodge(preserve = "single", width = 0.9)) +
+    labs(title = paste("Participant:", participant), x = "Time Category", y = "Count of Artifacts", fill = "Artifact Type") +
+    scale_fill_manual(values = c("count_artifacts_low" = "blue", "count_artifacts_high" = "red")) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top"
+    )
+  
+  print(p)
+}
+
+```
+
+### Plot of Percent
+
+```{r, warning=FALSE, message=FALSE}
+# Combine the data frames and reshape them to long format
+df3_long <- df3_wide %>%
+  pivot_longer(cols = -data_name, names_to = "cat_date_time", values_to = "percent_artifacts_low")
+
+df4_long <- df4_wide %>%
+  pivot_longer(cols = -data_name, names_to = "cat_date_time", values_to = "percent_artifacts_high")
+
+combined_df <- df3_long %>%
+  left_join(df4_long, by = c("data_name", "cat_date_time"))
+
+# Filter out zero-value periods
+combined_df <- combined_df %>%
+  filter(percent_artifacts_low > 0 | percent_artifacts_high > 0)
+
+# Reshape combined data to long format for plotting
+plot_df <- combined_df %>%
+  pivot_longer(cols = c(percent_artifacts_low, percent_artifacts_high), names_to = "variable", values_to = "value")
+
+# Reorder the variable factor
+plot_df$variable <- factor(plot_df$variable, levels = c("percent_artifacts_low", "percent_artifacts_high"))
+
+# Create individual plots for each dataset
+participant_ids <- unique(plot_df$data_name)
+
+for (participant in participant_ids) {
+  participant_df <- plot_df %>% filter(data_name == participant)
+  
+  p <- ggplot(participant_df, aes(x = cat_date_time, y = value, fill = variable)) +
+    geom_bar(stat = "identity", position = position_dodge(preserve = "single", width = 0.9)) +
+    labs(title = paste("Participant:", participant), x = "Time Category", y = "Percent of Artifacts", fill = "Artifact Type") +
+    scale_fill_manual(values = c("percent_artifacts_low" = "light blue", "percent_artifacts_high" = "pink")) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "top"
+    )
+  
+  print(p)
+}
+
+```
+
