@@ -1,0 +1,800 @@
+---
+title: "Caretaker_Preprocessing"
+author: "Aulia Dini Rafsanjani"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+```
+
+Abbreviation :
+
+- MAP = Mean Arterial Pressure
+
+- HR = Heart Rate
+
+Rs with data type 1:
+
+Rs with data type 2:
+
+### Read Dataset
+
+```{r}
+# Read dataset
+vitals_12452 <- read_csv(
+  "O:/WorkLife-Data/biomonitors/caretaker_cbp/12452/12452_vitals_2024-07-05_17-01-56-1.csv", 
+  show_col_types = FALSE)
+
+vitalsavg_12452 <- read_csv(
+  "O:/WorkLife-Data/biomonitors/caretaker_cbp/12452/12452_vitalsavg_2024-07-05_17-01-56-1.csv", 
+  show_col_types = FALSE)
+
+secondvitals_12452 <- read_csv(
+  "O:/WorkLife-Data/biomonitors/caretaker_cbp/12452/12452_secondaryVitals_2024-07-05_17-01-56-1.csv",
+  show_col_types = FALSE)
+```
+
+### Check data structure
+
+```{r}
+# Check data structure
+str(vitals_12452)
+```
+```{r}
+str(vitalsavg_12452)
+```
+
+```{r}
+str(secondvitals_12452)
+```
+
+### Compute time difference
+
+```{r}
+library(dplyr)
+
+vitals_12452 <- vitals_12452 %>%
+  mutate(Diff = vitals_12452$`TimeStamp (mS)` - lag(vitals_12452$`TimeStamp (mS)`))
+```
+
+```{r}
+# IBI
+head(vitals_12452$Diff)
+summary(vitals_12452$Diff)
+```
+### Compute the HR in milliseconds
+
+```{r}
+vitals_12452 <- vitals_12452 %>%
+  mutate(HR_milliseconds = if_else(`HeartRate (bpm)` == 0, NA_real_, 60 / `HeartRate (bpm)`*1000))
+
+summary(vitals_12452$HR_milliseconds)
+```
+Findings:
+
+- The time stamps interval is not equal with the HR in milliseconds. 
+
+### Summary of datasets 1
+
+### vitals
+
+```{r}
+summary(vitals_12452$`Systolic (mmHg)`)
+summary(vitals_12452$`Diastolic (mmHg)`)
+summary(vitals_12452$`MAP (mmHg)`)
+summary(vitals_12452$`HeartRate (bpm)`)
+summary(vitals_12452$`Respiration (Bpm)`)
+summary(vitals_12452$AS)
+summary(vitals_12452$SQE)
+summary(vitals_12452$`TimeStamp (mS)`)
+```
+Finding:
+
+- AS, SQE may not be meaningful information because the value is all zero and the vitals_avg does not present any summary from these two indicators. 
+
+- Each row represents information per minute. 
+
+- The time in the vitals is different from the time in the secondsvital. 
+
+### vitals_avg
+
+This dataset contains summary (min, max, mean, std dev) for the physiological indicator (Systolic, Diastolic, MAP, HR, RR) within five minutes interval. 
+
+I assume that RR is Respiration Rate. 
+
+I don't think we need to compute the summary of these indicator. 
+
+### secondvitals
+
+```{r}
+summary(secondvitals_12452$Reserved1)
+summary(secondvitals_12452$CO)
+summary(secondvitals_12452$Reserved2)
+summary(secondvitals_12452$LVET)
+summary(secondvitals_12452$Reserved3)
+summary(secondvitals_12452$CPO)
+summary(secondvitals_12452$CPI)
+summary(secondvitals_12452$PPV)
+summary(secondvitals_12452$SVI)
+summary(secondvitals_12452$SVR)
+summary(secondvitals_12452$RPP)
+summary(secondvitals_12452$SVV)
+summary(secondvitals_12452$SV)
+summary(secondvitals_12452$CI)
+summary(secondvitals_12452$`TimeStamp (mS)`)
+```
+Findings:
+
+- Variables with zero values: Reserved1, CO, LVET, CPO, CPI, SVI, SVR, RPP, SV, CI.
+
+- Variables with values: Reserved2, Reserved3, PPV, SVV. PPV and SVV have the same values, maybe these values are not necessary?
+
+- May need to find what Reserved2 and Reserved3 mean for?
+
+### Read dataset type 2
+
+```{r}
+bbb_vitals_18682 <- read_csv(
+  "O:/WorkLife-Data/biomonitors/caretaker_cbp/18682/bbb_vitals_2024-05-16_16-59-29.csv", 
+  show_col_types = FALSE)
+
+other_vitals_18682 <- read_csv(
+  "O:/WorkLife-Data/biomonitors/caretaker_cbp/18682/other_vitals_2024-05-16_16-59-29.csv", 
+  show_col_types = FALSE)
+```
+
+### Check data structure
+
+```{r}
+str(bbb_vitals_18682)
+str(other_vitals_18682)
+```
+
+### Check summary
+
+```{r}
+summary(bbb_vitals_18682$Systolic)
+summary(bbb_vitals_18682$Diastolic)
+summary(bbb_vitals_18682$MAP)
+summary(bbb_vitals_18682$HR)
+summary(bbb_vitals_18682$'BV*')
+summary(bbb_vitals_18682$CO)
+summary(bbb_vitals_18682$IBI)
+summary(bbb_vitals_18682$LVET)
+summary(bbb_vitals_18682$SV)
+summary(bbb_vitals_18682$'AS*')
+```
+```{r}
+summary(other_vitals_18682$Respiration)
+```
+
+Findings:
+
+- BV*, CO, LVET, SV, AS* has a zero values --> Maybe these information is unnecessary?
+
+- Respiration was presented in the other files --> other_vitals. 
+
+### Code for time conversion
+
+The Caretaker data shows a discrepancy of time in compare to the R's lab visit. The link of the time difference is located in this link: https://docs.google.com/spreadsheets/d/14YQDx0JMQStQE70ZA-V493Ft1qB48HpsVk1z30R_kW8/edit?gid=0#gid=0. 
+
+Since I don't get any pattern of the time difference across all participant, we need to input the `new_start_time` manually. 
+
+```{r}
+# Load necessary library
+library(lubridate)
+
+# Convert to POSIXct
+vitals_12452$Time <- as.POSIXct(vitals_12452$Time, format="%H:%M:%S", tz="UTC")
+
+# Calculate time differences in seconds
+vitals_12452$time_diffs <- c(0, diff(vitals_12452$Time))
+
+# New start time
+new_start_time <- as.POSIXct("17:15:00", format="%H:%M:%S", tz="UTC")
+
+# Create new times
+vitals_12452$new_times <- new_start_time + cumsum(vitals_12452$time_diffs)
+
+# Format new times to keep only the HH:MM:SS part
+vitals_12452$new_times <- format(vitals_12452$new_times, "%H:%M:%S")
+
+# Print original and new times
+print(head(vitals_12452$Time))
+print(head(vitals_12452$new_times))
+```
+### Check the range of heart rate
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("12452", "13098", "19003", "21854", "38190", "39925", "40761", "43465", "54010", "59154", "59503", "68129", "86760")
+
+result_df1 <- data.frame()
+result_df2 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id)
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0(participant_id, "_vitals_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Convert heart rate from bpm to ms
+    data$HR_ms <- round(((60 / data$`HeartRate (bpm)`) * 1000), 3)
+    
+    # Compute time stamp differencew
+    data$Diff = data$`TimeStamp (mS)` - lag(data$`TimeStamp (mS)`)
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(minimum = round(min(HR_ms, na.rm = TRUE), 2),
+                q1 = round(quantile(HR_ms, 0.25, na.rm = TRUE), 2),
+                median = round(median(HR_ms, na.rm = TRUE), 2),
+                q3 = round(quantile(HR_ms, 0.75, na.rm = TRUE), 2),
+                maximum = round(max(HR_ms, na.rm = TRUE), 2),
+                mean = round(mean(HR_ms, na.rm = TRUE), 2),
+                sd = round(sd(HR_ms, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    # Create table of RR summary (in milliseconds)
+    table2 <- data %>%
+      summarise(minimum = round(min(Diff, na.rm = TRUE), 2),
+                q1 = round(quantile(Diff, 0.25, na.rm = TRUE), 2),
+                median = round(median(Diff, na.rm = TRUE), 2),
+                q3 = round(quantile(Diff, 0.75, na.rm = TRUE), 2),
+                maximum = round(max(Diff, na.rm = TRUE), 2),
+                mean = round(mean(Diff, na.rm = TRUE), 2),
+                sd = round(sd(Diff, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+    result_df2 <- bind_rows(result_df2, table2)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", "minimum", "q1", "median", "q3", "maximum", "mean", "sd")]
+result_df1
+
+result_df2 <- result_df2[, c("data_name", "minimum", "q1", "median", "q3", "maximum", "mean", "sd")]
+result_df2
+```
+
+Does the HR based on this calculation fall within the range of 0.3s - 1.3s or 300ms - 1300ms ? Yes, except some participant has Inf values because they have HR with 0 values. I use the formula of HR_ms = 60/HR_bpm
+
+Does the HR based on this calculation fall within the range of 0.3s - 1.3s or 300ms - 1300ms ? No, if I use the calculation based on Timestamp difference. 
+
+### Check the calculation of MAP
+
+```{r}
+vitals_12452$map_check = round((vitals_12452$`Diastolic (mmHg)` + ((1/3)*(vitals_12452$`Systolic (mmHg)` - vitals_12452$`Diastolic (mmHg)`))),0)
+
+vitals_12452$diff_map = vitals_12452$map_check - vitals_12452$`MAP (mmHg)`
+summary(vitals_12452$diff_map)
+```
+```{r}
+hist(vitals_12452$diff_map)
+```
+### Check the IBI in bbb_vitals VS the difference of timestamp
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id)
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0(participant_id, "_vitals_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Compute time stamp differencew
+    data$Diff = data$`TimeStamp (mS)` - lag(data$`TimeStamp (mS)`)
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(min_diff = round(min(Diff, na.rm = FALSE), 2),
+                q1_diff = round(quantile(Diff, 0.25, na.rm = TRUE), 2),
+                median_diff = round(median(Diff, na.rm = TRUE), 2),
+                q3_diff = round(quantile(Diff, 0.75, na.rm = TRUE), 2),
+                max_diff = round(max(Diff, na.rm = TRUE), 2),
+                mean_diff = round(mean(Diff, na.rm = TRUE), 2),
+                sd_diff = round(sd(Diff, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", "min_diff", "q1_diff", "median_diff", "q3_diff", "max_diff", "mean_diff", "sd_diff")]
+result_df1
+```
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id, "Type_2_Data")
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0("bbb_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(min_IBI = round(min(IBI, na.rm = TRUE), 2),
+                q1_IBI = round(quantile(IBI, 0.25, na.rm = TRUE), 2),
+                median_IBI = round(median(IBI, na.rm = TRUE), 2),
+                q3_IBI = round(quantile(IBI, 0.75, na.rm = TRUE), 2),
+                max_IBI = round(max(IBI, na.rm = TRUE), 2),
+                mean_IBI = round(mean(IBI, na.rm = TRUE), 2),
+                sd_IBI = round(sd(IBI, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", "min_IBI", "q1_IBI", "median_IBI", "q3_IBI", "max_IBI", "mean_IBI", "sd_IBI")]
+result_df1
+```
+
+Findings:
+
+I am checking the summary statistics of the difference between time stamps with the IBI value. They have a different result. 
+
+### Check the summary statistics of variable in data type 2
+
+### 1. File name "bbb_vitals_.csv"
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id, "Type_2_Data")
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0("bbb_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(count_obs = nrow(data),
+                min_syst = round(min(Systolic, na.rm = TRUE), 2),
+                mean_syst = round(mean(Systolic, na.rm = TRUE), 2),
+                max_syst = round(max(Systolic, na.rm = TRUE), 2),
+                min_dias = round(min(Diastolic, na.rm = TRUE), 2),
+                mean_dias = round(mean(Diastolic, na.rm = TRUE), 2),
+                max_dias = round(max(Diastolic, na.rm = TRUE), 2),
+                min_MAP = round(min(MAP, na.rm = TRUE), 2),
+                mean_MAP = round(mean(MAP, na.rm = TRUE), 2),
+                max_MAP = round(max(MAP, na.rm = TRUE), 2),
+                min_HR = round(min(HR, na.rm = TRUE), 2),
+                mean_HR = round(mean(HR, na.rm = TRUE), 2),
+                max_HR = round(max(HR, na.rm = TRUE), 2),
+                min_BV = round(min(`BV*`, na.rm = TRUE), 2),
+                mean_BV = round(mean(`BV*`, na.rm = TRUE), 2),
+                max_BV = round(max(`BV*`, na.rm = TRUE), 2),
+                min_CO = round(min(CO, na.rm = TRUE), 2),
+                mean_CO = round(mean(CO, na.rm = TRUE), 2),
+                max_CO = round(max(CO, na.rm = TRUE), 2),
+                min_IBI = round(min(IBI, na.rm = TRUE), 2),
+                mean_IBI = round(mean(IBI, na.rm = TRUE), 2),
+                max_IBI = round(max(IBI, na.rm = TRUE), 2),
+                min_LVET = round(min(LVET, na.rm = TRUE), 2),
+                mean_LVET = round(mean(LVET, na.rm = TRUE), 2),
+                max_LVET = round(max(LVET, na.rm = TRUE), 2),
+                min_SV = round(min(SV, na.rm = TRUE), 2),
+                mean_SV = round(mean(SV, na.rm = TRUE), 2),
+                max_SV = round(max(SV, na.rm = TRUE), 2),
+                min_AS = round(min(`AS*`, na.rm = TRUE), 2),
+                mean_AS = round(mean(`AS*`, na.rm = TRUE), 2),
+                max_AS = round(max(`AS*`, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", 
+                             "count_obs",
+                             "min_syst", "mean_syst", "max_syst",
+                             "min_dias", "mean_dias", "max_dias",
+                             "min_MAP", "mean_MAP", "max_MAP",
+                             "min_HR", "mean_HR", "max_HR",
+                             "min_BV", "mean_BV", "max_BV",
+                             "min_CO", "mean_CO", "max_CO",
+                             "min_IBI", "mean_IBI", "max_IBI",
+                             "min_LVET", "mean_LVET", "max_LVET",
+                             "min_SV", "mean_SV", "max_SV",
+                             "min_AS", "mean_AS", "max_AS")]
+result_df1
+```
+
+Finding:
+
+- The variables with zero values : BV, CO, LVET, SV, AS
+
+### 2. File name "other_vitals_.csv"
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id, "Type_2_Data")
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0("other_vitals_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(min_Respiration = round(min(Respiration, na.rm = TRUE), 2),
+                mean_Respiration = round(mean(Respiration, na.rm = TRUE), 2),
+                max_Respiration = round(max(Respiration, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", 
+                             "min_Respiration", "mean_Respiration", "max_Respiration")]
+result_df1
+```
+
+### Check data type 1 
+
+1. File "_vitals_.csv"
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id)
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0("_vitals_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(count_obs = nrow(data),
+                min_syst = round(min(`Systolic (mmHg)`, na.rm = TRUE), 2),
+                mean_syst = round(mean(`Systolic (mmHg)`, na.rm = TRUE), 2),
+                max_syst = round(max(`Systolic (mmHg)`, na.rm = TRUE), 2),
+                min_dias = round(min(`Diastolic (mmHg)`, na.rm = TRUE), 2),
+                mean_dias = round(mean(`Diastolic (mmHg)`, na.rm = TRUE), 2),
+                max_dias = round(max(`Diastolic (mmHg)`, na.rm = TRUE), 2),
+                min_MAP = round(min(`MAP (mmHg)`, na.rm = TRUE), 2),
+                mean_MAP = round(mean(`MAP (mmHg)`, na.rm = TRUE), 2),
+                max_MAP = round(max(`MAP (mmHg)`, na.rm = TRUE), 2),
+                min_HR = round(min(`HeartRate (bpm)`, na.rm = TRUE), 2),
+                mean_HR = round(mean(`HeartRate (bpm)`, na.rm = TRUE), 2),
+                max_HR = round(max(`HeartRate (bpm)`, na.rm = TRUE), 2),
+                min_RR = round(min(`Respiration (Bpm)`, na.rm=TRUE), 2),
+                mean_RR = round(mean(`Respiration (Bpm)`, na.rm=TRUE), 2), 
+                max_RR = round(max(`Respiration (Bpm)`, na.rm=TRUE), 2),
+                min_AS = round(min(AS, na.rm = TRUE), 2),
+                mean_AS = round(mean(AS, na.rm = TRUE), 2),
+                max_AS = round(max(AS, na.rm = TRUE), 2), 
+                min_SQE = round(min(SQE, na.rm = TRUE), 2),
+                mean_SQE = round(mean(SQE, na.rm = TRUE), 2),
+                max_SQE = round(max(SQE, na.rm = TRUE), 2),
+                min_TIME = round(min(`TimeStamp (mS)`, na.rm = TRUE), 2),
+                mean_TIME = round(mean(`TimeStamp (mS)`, na.rm = TRUE), 2),
+                max_TIME = round(max(`TimeStamp (mS)`, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", 
+                             "count_obs",
+                             "min_syst", "mean_syst", "max_syst",
+                             "min_dias", "mean_dias", "max_dias",
+                             "min_MAP", "mean_MAP", "max_MAP",
+                             "min_HR", "mean_HR", "max_HR",
+                             "min_RR", "mean_RR", "max_RR",
+                             "min_AS", "mean_AS", "max_AS",
+                             "min_SQE", "mean_SQE", "max_SQE",
+                             "min_TIME", "mean_TIME", "max_TIME")]
+result_df1
+```
+
+### 2. File secondaryVitals
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id)
+  
+  # List all files in the participant's directory that match the pattern "ID_vitals_" and are CSV files
+  pattern <- paste0("_secondaryVitals_.*\\.csv")
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Create table of RR summary (in milliseconds)
+    table1 <- data %>%
+      summarise(
+                min_RESERVED1 = round(min(Reserved1, na.rm = TRUE), 2),
+                mean_RESERVED1 = round(mean(Reserved1, na.rm = TRUE), 2),
+                max_RESERVED1 = round(max(Reserved1, na.rm = TRUE), 2),
+                min_CO = round(min(CO, na.rm = TRUE), 2),
+                mean_CO = round(mean(CO, na.rm = TRUE), 2),
+                max_CO = round(max(CO, na.rm = TRUE), 2),
+                min_RESERVED2 = round(min(Reserved2, na.rm = TRUE), 2),
+                mean_RESERVED2 = round(mean(Reserved2, na.rm = TRUE), 2),
+                max_RESERVED2 = round(max(Reserved2, na.rm = TRUE), 2),
+                min_LVET = round(min(LVET, na.rm = TRUE), 2),
+                mean_LVET = round(mean(LVET, na.rm = TRUE), 2),
+                max_LVET = round(max(LVET, na.rm = TRUE), 2),
+                min_RESERVED3 = round(min(Reserved3, na.rm = TRUE), 2),
+                mean_RESERVED3 = round(mean(Reserved3, na.rm = TRUE), 2),
+                max_RESERVED3 = round(max(Reserved3, na.rm = TRUE), 2),   
+                min_CPO = round(min(CPO, na.rm = TRUE), 2),
+                mean_CPO = round(mean(CPO, na.rm = TRUE), 2),
+                max_CPO = round(max(CPO, na.rm = TRUE), 2),
+                min_CPI = round(min(CPI, na.rm = TRUE), 2),
+                mean_CPI = round(mean(CPI, na.rm = TRUE), 2),
+                max_CPI = round(max(CPI, na.rm = TRUE), 2), 
+                min_PPV = round(min(PPV, na.rm = TRUE), 2),
+                mean_PPV = round(mean(PPV, na.rm = TRUE), 2),
+                max_PPV = round(max(PPV, na.rm = TRUE), 2),
+                min_SVI = round(min(SVI, na.rm = TRUE), 2),
+                mean_SVI = round(mean(SVI, na.rm = TRUE), 2),
+                max_SVI = round(max(SVI, na.rm = TRUE), 2),
+                min_SVR = round(min(SVR , na.rm = TRUE), 2),
+                mean_SVR  = round(mean(SVR , na.rm = TRUE), 2),
+                max_SVR  = round(max(SVR , na.rm = TRUE), 2),  
+                min_RPP = round(min(RPP , na.rm = TRUE), 2),
+                mean_RPP  = round(mean(RPP , na.rm = TRUE), 2),
+                max_RPP  = round(max(RPP , na.rm = TRUE), 2),  
+                min_SVV = round(min(SVV , na.rm = TRUE), 2),
+                mean_SVV  = round(mean(SVV , na.rm = TRUE), 2),
+                max_SVV  = round(max(SVV , na.rm = TRUE), 2),
+                min_SV = round(min(SV , na.rm = TRUE), 2),
+                mean_SV  = round(mean(SV , na.rm = TRUE), 2),
+                max_SV  = round(max(SV , na.rm = TRUE), 2),
+                min_CI = round(min(CI , na.rm = TRUE), 2),
+                mean_CI  = round(mean(CI , na.rm = TRUE), 2),
+                max_CI  = round(max(CI , na.rm = TRUE), 2),  
+                min_TIMESTAMP = round(min(`TimeStamp (mS)` , na.rm = TRUE), 2),
+                mean_TIMESTAMP = round(mean(`TimeStamp (mS)` , na.rm = TRUE), 2),
+                max_TIMESTAMP = round(max(`TimeStamp (mS)` , na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    # Append the percentage table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+# Print Result
+result_df1 <- result_df1[, c("data_name", 
+                             "min_RESERVED1", "mean_RESERVED1", "max_RESERVED1",
+                             "min_CO", "mean_CO", "max_CO",
+                             "min_RESERVED2", "mean_RESERVED2", "max_RESERVED2",
+                             "min_LVET", "mean_LVET", "max_LVET",
+                             "min_RESERVED3", "mean_RESERVED3", "max_RESERVED3",
+                             "min_CPO", "mean_CPO", "max_CPO",
+                             "min_CPI", "mean_CPI", "max_CPI",
+                             "min_PPV", "mean_PPV", "max_PPV",
+                             "min_SVI", "mean_SVI", "max_SVI",
+                             "min_SVR", "mean_SVR", "max_SVR",
+                             "min_RPP", "mean_RPP", "max_RPP",
+                             "min_SVV", "mean_SVV", "max_SVV",
+                             "min_SV", "mean_SV", "max_SV",
+                             "min_CI", "mean_CI", "max_CI",
+                             "min_TIMESTAMP", "mean_TIMESTAMP", "max_TIMESTAMP")]
+result_df1
+```
+
+
+### 3. File "_vitalsavg_.csv"
+
+```{r}
+library(data.table)
+library(dplyr)
+
+# Define directory base path
+base_directory <- "O:/WorkLife-Data/biomonitors/caretaker_cbp"
+
+# Define participant IDs
+participant_ids <- c("38190", "59503", "59154", "19599", "21854", "13098", "39925", "19686")
+
+result_df1 <- data.frame()
+
+for (participant_id in participant_ids) {
+  
+  # Construct the directory path for the participant
+  participant_directory <- file.path(base_directory, participant_id)
+  
+  # List all files in the participant's directory that match the pattern "_vitalsavg_" and are CSV files
+  pattern <- "_vitalsavg_.*\\.csv"
+  full_file_paths <- list.files(participant_directory, pattern = pattern, full.names = TRUE)
+  
+  for (full_file_path in full_file_paths) {
+    
+    # Read the CSV file
+    data <- fread(full_file_path, sep = ",")
+    
+    # Create table of summary statistics
+    table1 <- data %>%
+      summarise(count_obs = n(),
+                mean_INTME = round(mean(`Interval Measurements`, na.rm = TRUE), 2),
+                mean_SYSSTD = round(mean(`Sys StdDev`, na.rm = TRUE), 2),
+                mean_SYSAVG = round(mean(`Sys Avg`, na.rm = TRUE), 2),
+                mean_SYSMAX = round(mean(`Sys Max`, na.rm = TRUE), 2),
+                mean_SYSMIN = round(mean(`Sys Min`, na.rm = TRUE), 2),
+                mean_DIASTD = round(mean(`Dia StdDev`, na.rm = TRUE), 2),
+                mean_DIAAVG = round(mean(`Dia Avg`, na.rm = TRUE), 2),
+                mean_DIAMAX = round(mean(`Dia Max`, na.rm = TRUE), 2),
+                mean_DIAMIN = round(mean(`Dia Min`, na.rm = TRUE), 2),
+                mean_MAPSTD = round(mean(`MAP StdDev`, na.rm = TRUE), 2),
+                mean_MAPAVG = round(mean(`MAP Avg`, na.rm = TRUE), 2),
+                mean_MAPMAX = round(mean(`MAP Max`, na.rm = TRUE), 2),
+                mean_MAPMIN = round(mean(`MAP Min`, na.rm = TRUE), 2),
+                mean_HRSTD = round(mean(`HR StdDev`, na.rm = TRUE), 2),
+                mean_HRAVG = round(mean(`HR Avg`, na.rm = TRUE), 2),
+                mean_HRMAX = round(mean(`HR Max`, na.rm = TRUE), 2),
+                mean_HRMIN = round(mean(`HR Min`, na.rm = TRUE), 2),
+                mean_RRSTD = round(mean(`RR StdDev`, na.rm = TRUE), 2),
+                mean_RRAVG = round(mean(`RR Avg`, na.rm = TRUE), 2),
+                mean_RRMAX = round(mean(`RR Max`, na.rm = TRUE), 2),
+                mean_RRMIN = round(mean(`RR Min`, na.rm = TRUE), 2)) %>%
+      mutate(data_name = participant_id)
+    
+    # Append the summary table to the result data frame
+    result_df1 <- bind_rows(result_df1, table1)
+  }
+}
+
+# Reorder columns if needed
+result_df1 <- result_df1[, c("data_name", 
+                             "count_obs",
+                             "mean_INTME", 
+                             "mean_SYSSTD", "mean_SYSAVG", "mean_SYSMAX", "mean_SYSMIN",
+                             "mean_DIASTD", "mean_DIAAVG", "mean_DIAMAX", "mean_DIAMIN", 
+                             "mean_MAPSTD", "mean_MAPAVG", "mean_MAPMAX", "mean_MAPMIN", 
+                             "mean_HRSTD", "mean_HRAVG", "mean_HRMAX", "mean_HRMIN", 
+                             "mean_RRSTD", "mean_RRAVG", "mean_RRMAX", "mean_RRMIN")]
+
+# Print the final result
+result_df1
+
+```
