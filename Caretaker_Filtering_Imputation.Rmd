@@ -17,7 +17,7 @@ To apply this code to real participants, you should use the new naming conventio
 
 Side note:
 
-The imputation code use the random number from normal distribution to fill out the gap. I use the function `rnorm` without using `set.seed` function. This means that every time we do the imputation for the same data set, the result will generate a different random number. 
+The imputation code use the random number from normal distribution to fill out the gap. I use the function `rnorm` without using `set.seed` function. This means that every time we do the imputation for the same data set, the result will generate a different random number. This code has commented out the set.seed() function. The code can be activated anytime once the team got a answer from Michael Elliott. 
 
 ### Filtering code (Version 4)
 
@@ -238,6 +238,7 @@ impute_IBI_intervals <- function(df) {
         sigma <- sd(df$IBI[(i - 9):i])
         
         # Generate new IBI value
+        # set.seed(999)
         new_IBI <- rnorm(1, mean = mu, sd = sigma)
         cat("Generated new IBI:", new_IBI, "\n")
         
@@ -278,6 +279,9 @@ impute_IBI_intervals <- function(df) {
   
   # Convert IBI and Time from seconds back to milliseconds
   df <- df %>% mutate(IBI = round((IBI * 1000),0), Timestamps = round((Timestamps * 1000),0))
+  
+  # Add column about imputation flag, 1 is imputed, 0 is not imputed.
+  df$Flag <- ifelse(is.na(df$Time), 1, 0)
   
   # Fill out the empty Time 
   df <- df %>%
