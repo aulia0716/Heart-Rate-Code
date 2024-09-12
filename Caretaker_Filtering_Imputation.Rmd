@@ -13,7 +13,7 @@ This file contains final code of two parts: Filtering and Imputation. The filter
 
 Please note that the processing time may take a few minutes to complete. Therefore, I recommend running this code for each data set individually (rather than many data set simultaneously) to avoid potential errors.
 
-To apply this code to real participants, you should use the new naming convention format in the O drive. 
+To apply this code to real participants, you should use the new naming convention format in the O: drive. 
 
 Side note:
 
@@ -501,116 +501,116 @@ write.table(data_imputed19686, file = output_file_path, row.names = FALSE, col.n
 ### Code Archive
 
 ```{r}
-impute_IBI_intervals <- function(df) {
-  
-  # library
-  library(dplyr)
-  library(tidyr)
-  
-  # Separate time into hours, minutes, seconds, and milliseconds, then calculate Timestamps
-  df <- df %>%
-    mutate(Temp = Time) %>%  # Create a temporary column to split
-    separate(Temp, into = c("hours", "minutes", "sec_millisec"), sep = ":") %>%
-    separate(sec_millisec, into = c("seconds", "milliseconds"), sep = "\\.") %>%
-    mutate(across(c(hours, minutes, seconds, milliseconds), as.integer)) %>%
-    mutate(
-      hours = hours * 60 * 60 * 1000,
-      minutes = minutes * 60 * 1000,
-      seconds = seconds * 1000,
-      Timestamps = hours + minutes + seconds + milliseconds
-  ) %>%
-  select(-hours, -minutes, -seconds, -milliseconds)  # Remove intermediate columns
-  
-  # Convert IBI and Time from milliseconds to seconds
-  df <- df %>% mutate(IBI = IBI / 1000, Timestamps = Timestamps / 1000)
-  
-  # Helper function to compute E_10
-  compute_E_10 <- function(df, i) {
-    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
-    sum(abs((df$IBI[i:(i + 10)] - df$IBI[(i - 1):(i + 9)]) / df$IBI[(i - 1):(i + 9)])) / 10
-  }
-  
-  # Helper function to compute deviation E_r and E_l
-  compute_deviation <- function(IBI_j, IBI_prev, IBI_next) {
-    E_l <- abs((IBI_j - IBI_prev) / IBI_prev)
-    E_r <- abs((IBI_next - IBI_j) / IBI_j)
-    return(list(E_l = E_l, E_r = E_r))
-  }
-  
-  # Iterate over IBI intervals
-  i <- 1
-  while (i < nrow(df)) {
-    cat("Iteration:", i, "\n")
-    
-    # Check if the time difference > 1.3 and not equal to IBI[i+1]
-    while (!is.na(df$Timestamps[i]) && !is.na(df$Timestamps[i + 1]) && (df$Timestamps[i + 1] - df$Timestamps[i]) > 1.3) {
-      
-      # Skip the gap if there are not enough previous IBI intervals
-      if (i - 9 <= 0) {
-        cat("Not enough previous IBI intervals, skipping gap.\n")
-        break
-      }
-      
-      attempt_count <- 0
-      inserted_data_count <- 0
-      repeat {
-        # Use mean and std deviation from 10 previous observations
-        mu <- mean(df$IBI[(i - 9):i])
-        sigma <- sd(df$IBI[(i - 9):i])
-        
-        # Generate new IBI value
-        new_IBI <- rnorm(1, mean = mu, sd = sigma)
-        cat("Generated new IBI:", new_IBI, "\n")
-        
-        # Insert the new IBI value to the gap
-        df <- df %>% add_row(IBI = new_IBI, .before = i + 1)
-        inserted_data_count <- inserted_data_count + 1
-        
-        # Insert new Timestamps to the inserted new IBI
-        T_end <- df$Timestamps[i + 2]
-        new_time <- T_end - df$IBI[i + 2]
-        df$Timestamps[i + 1] <- new_time
-        cat("New Timestamps value inserted:", new_time, "\n")
-        
-        # Check conditions for the new IBI
-        deviations <- compute_deviation(new_IBI, df$IBI[i - 1], df$IBI[i + 1])
-        E_10 <- compute_E_10(df, i)
-        
-        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) && deviations$E_l <= E_10 &&  deviations$E_r <= E_10 &&
-            new_IBI >= 0.3 && new_IBI <= 1.3) {
-          # Conditions are met, continue to next gap
-          break
-        }
-        
-        # Conditions not met, retry
-        attempt_count <- attempt_count + 1
-        if (attempt_count > 3) {
-          cat("Exceeded maximum attempts.\n")
-          if (inserted_data_count == 1) {
-            df <- df[-(i + 1), ] # Remove one observation
-          } else {
-            df <- df[-((i + 1):(i + 2)), ] # Remove two observations
-            for (j in 1:4) {
-              E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
-            }
-          }
-          break
-        }
-        
-        cat("Conditions not met, retrying...\n")
-        df <- df[-(i + 1), ] # Remove observation
-        inserted_data_count <- inserted_data_count - 1
-        E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
-      }
-    }
-    i <- i + 1
-  }
-  
-  # Convert IBI and Time from seconds back to milliseconds
-  df <- df %>% mutate(IBI = IBI * 1000, Timestamps = Timestamps * 1000)
-  
-  # Return the dataframe result
-  return(df)
-}
+# impute_IBI_intervals <- function(df) {
+#   
+#   # library
+#   library(dplyr)
+#   library(tidyr)
+#   
+#   # Separate time into hours, minutes, seconds, and milliseconds, then calculate Timestamps
+#   df <- df %>%
+#     mutate(Temp = Time) %>%  # Create a temporary column to split
+#     separate(Temp, into = c("hours", "minutes", "sec_millisec"), sep = ":") %>%
+#     separate(sec_millisec, into = c("seconds", "milliseconds"), sep = "\\.") %>%
+#     mutate(across(c(hours, minutes, seconds, milliseconds), as.integer)) %>%
+#     mutate(
+#       hours = hours * 60 * 60 * 1000,
+#       minutes = minutes * 60 * 1000,
+#       seconds = seconds * 1000,
+#       Timestamps = hours + minutes + seconds + milliseconds
+#   ) %>%
+#   select(-hours, -minutes, -seconds, -milliseconds)  # Remove intermediate columns
+#   
+#   # Convert IBI and Time from milliseconds to seconds
+#   df <- df %>% mutate(IBI = IBI / 1000, Timestamps = Timestamps / 1000)
+#   
+#   # Helper function to compute E_10
+#   compute_E_10 <- function(df, i) {
+#     if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+#     sum(abs((df$IBI[i:(i + 10)] - df$IBI[(i - 1):(i + 9)]) / df$IBI[(i - 1):(i + 9)])) / 10
+#   }
+#   
+#   # Helper function to compute deviation E_r and E_l
+#   compute_deviation <- function(IBI_j, IBI_prev, IBI_next) {
+#     E_l <- abs((IBI_j - IBI_prev) / IBI_prev)
+#     E_r <- abs((IBI_next - IBI_j) / IBI_j)
+#     return(list(E_l = E_l, E_r = E_r))
+#   }
+#   
+#   # Iterate over IBI intervals
+#   i <- 1
+#   while (i < nrow(df)) {
+#     cat("Iteration:", i, "\n")
+#     
+#     # Check if the time difference > 1.3 and not equal to IBI[i+1]
+#     while (!is.na(df$Timestamps[i]) && !is.na(df$Timestamps[i + 1]) && (df$Timestamps[i + 1] - df$Timestamps[i]) > 1.3) {
+#       
+#       # Skip the gap if there are not enough previous IBI intervals
+#       if (i - 9 <= 0) {
+#         cat("Not enough previous IBI intervals, skipping gap.\n")
+#         break
+#       }
+#       
+#       attempt_count <- 0
+#       inserted_data_count <- 0
+#       repeat {
+#         # Use mean and std deviation from 10 previous observations
+#         mu <- mean(df$IBI[(i - 9):i])
+#         sigma <- sd(df$IBI[(i - 9):i])
+#         
+#         # Generate new IBI value
+#         new_IBI <- rnorm(1, mean = mu, sd = sigma)
+#         cat("Generated new IBI:", new_IBI, "\n")
+#         
+#         # Insert the new IBI value to the gap
+#         df <- df %>% add_row(IBI = new_IBI, .before = i + 1)
+#         inserted_data_count <- inserted_data_count + 1
+#         
+#         # Insert new Timestamps to the inserted new IBI
+#         T_end <- df$Timestamps[i + 2]
+#         new_time <- T_end - df$IBI[i + 2]
+#         df$Timestamps[i + 1] <- new_time
+#         cat("New Timestamps value inserted:", new_time, "\n")
+#         
+#         # Check conditions for the new IBI
+#         deviations <- compute_deviation(new_IBI, df$IBI[i - 1], df$IBI[i + 1])
+#         E_10 <- compute_E_10(df, i)
+#         
+#         if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) && deviations$E_l <= E_10 &&  deviations$E_r <= E_10 &&
+#             new_IBI >= 0.3 && new_IBI <= 1.3) {
+#           # Conditions are met, continue to next gap
+#           break
+#         }
+#         
+#         # Conditions not met, retry
+#         attempt_count <- attempt_count + 1
+#         if (attempt_count > 3) {
+#           cat("Exceeded maximum attempts.\n")
+#           if (inserted_data_count == 1) {
+#             df <- df[-(i + 1), ] # Remove one observation
+#           } else {
+#             df <- df[-((i + 1):(i + 2)), ] # Remove two observations
+#             for (j in 1:4) {
+#               E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
+#             }
+#           }
+#           break
+#         }
+#         
+#         cat("Conditions not met, retrying...\n")
+#         df <- df[-(i + 1), ] # Remove observation
+#         inserted_data_count <- inserted_data_count - 1
+#         E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
+#       }
+#     }
+#     i <- i + 1
+#   }
+#   
+#   # Convert IBI and Time from seconds back to milliseconds
+#   df <- df %>% mutate(IBI = IBI * 1000, Timestamps = Timestamps * 1000)
+#   
+#   # Return the dataframe result
+#   return(df)
+# }
 
 ```
