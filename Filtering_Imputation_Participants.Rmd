@@ -196,6 +196,7 @@ impute_rr_intervals <- function(df) {
         sigma <- sd(df$RR[(i - 9):i])
         
         # Generate new RR value
+        # set.seed(999)
         new_rr <- rnorm(1, mean = mu, sd = sigma)
         cat("Generated new RR:", new_rr, "\n")
         
@@ -300,6 +301,7 @@ impute_rr_intervals <- function(df, max_attempts = 3, sigma_loosen = 1.05) {
         sigma <- sd(df$RR[(i - 9):i]) * sigma_loosen^attempt_count # Loosen sigma with each attempt
         
         # Generate new RR value
+        #set.seed(999)
         new_rr <- rnorm(1, mean = mu, sd = sigma)
         cat("Generated new RR:", new_rr, "\n")
         
@@ -353,6 +355,102 @@ impute_rr_intervals <- function(df, max_attempts = 3, sigma_loosen = 1.05) {
 }
 ```
 
+### Imputation Version 3
+
+```{r}
+impute_RR_intervals <- function(df) {
+  
+  # library
+  library(dplyr)
+  
+  # Convert RR and Time from milliseconds to seconds
+  df <- df %>% mutate(RR = RR / 1000, Time = Time / 1000)
+  
+  # Helper function to compute E_10
+  compute_E_10 <- function(df, i) {
+    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+  }
+  
+  # Helper function to compute deviation E_r and E_l
+  compute_deviation <- function(RR_j, RR_prev, RR_next) {
+    E_l <- abs((RR_j - RR_prev) / RR_prev)
+    E_r <- abs((RR_next - RR_j) / RR_j)
+    return(list(E_l = E_l, E_r = E_r))
+  }
+  
+  # Iterate over RR intervals
+  i <- 1
+  while (i < nrow(df)) {
+    cat("Iteration:", i, "\n")
+    
+    # Check if the time difference > 1.3 and not equal to RR[i+1]
+    while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
+      
+      # Skip the gap if there are not enough previous RR intervals
+      if (i - 9 <= 0) {
+        cat("Not enough previous RR intervals, skipping gap.\n")
+        break
+      }
+      
+      # Calculate E_10 once per gap
+      E_10 <- compute_E_10(df, i)
+      
+      attempt_count <- 0
+      max_attempts <- 5  # Set a reasonable limit
+      while (attempt_count < max_attempts) {
+        # Use mean and std deviation from 10 previous observations
+        mu <- mean(df$RR[(i - 9):i])
+        sigma <- sd(df$RR[(i - 9):i])
+        
+        # Generate new RR value
+        set.seed(999)
+        new_RR <- rnorm(1, mean = mu, sd = sigma)
+        cat("Generated new RR:", new_RR, "\n")
+        
+        # Insert the new RR value to the gap
+        df <- df %>% add_row(RR = new_RR, .before = i + 1)
+        
+        # Insert new Time to the inserted new RR
+        T_end <- df$Time[i + 2]
+        new_time <- T_end - df$RR[i + 2]
+        df$Time[i + 1] <- new_time
+        cat("New Time value inserted:", new_time, "\n")
+        
+        # Check conditions for the new RR
+        deviations <- compute_deviation(new_RR, df$RR[i - 1], df$RR[i + 1])
+        
+        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) &&
+            deviations$E_l <= E_10 && deviations$E_r <= E_10 &&
+            new_RR >= 0.3 && new_RR <= 1.3) {
+          # Conditions are met, continue to next gap
+          break
+        }
+        
+        # Conditions not met, remove the inserted RR and try again
+        cat("Conditions not met, retrying...\n")
+        df <- df[-(i + 1), ] # Remove the observation
+        attempt_count <- attempt_count + 1
+        sigma <- sigma * 1.05  # Loosen the requirements slightly
+      }
+      
+      # If maximum attempts reached without success, skip to next interval
+      if (attempt_count == max_attempts) {
+        cat("Exceeded maximum attempts. Skipping this gap.\n")
+        break
+      }
+    }
+    i <- i + 1
+  }
+  
+  # Convert RR and Time from seconds back to milliseconds
+  df <- df %>% mutate(RR = round((RR * 1000),0), Time = round((Time * 1000),0))
+  
+  # Return the dataframe result
+  return(df)
+}
+```
+
 ### Apply the imputation function to the dataset
 
 Note: You need to change the file path with the current file path of the data you are currenly working on. 
@@ -372,15 +470,15 @@ file <- c("18682_advhrv.txt")
 full_file_path <- file.path(directory, file)
   
 # read the CSV file
-data_original <- data.table::fread(full_file_path, sep = "\t")
+data_original18682 <- data.table::fread(full_file_path, sep = "\t")
   
 # change column name
-colnames(data_original)[4] <- "conv_type"
+colnames(data_original18682 )[4] <- "conv_type"
 ```
 
 ```{r}
 # apply the helper function to one dataset
-data_filtered<- filtering(data_original) 
+data_filtered18682<- filtering(data_original18682) 
 ```
 
 ```{r}
@@ -391,27 +489,27 @@ data_filtered<- filtering(data_original)
 
 ```{r}
 # apply the imputation code
-data_imputed <- impute_rr_intervals(data_filtered)
+data_imputed18682 <- impute_RR_intervals(data_filtered)
 ```
 
 ```{r}
 # check the summary of filtered data
-summary(data_original$Time)
-summary(data_original$RR)
-dim(data_original)
-head(data_original)
+summary(data_original18682$Time)
+summary(data_original18682$RR)
+dim(data_original18682)
+head(data_original18682)
 
 # check the summary of data before imputation
-summary(data_filtered$Time)
-summary(data_filtered$RR)
-dim(data_filtered)
-head(data_filtered)
+summary(data_filtered18682$Time)
+summary(data_filtered18682$RR)
+dim(data_filtered18682)
+head(data_filtered18682)
 
 # check the summary of data after imputation
-summary(data_imputed$Time)
-summary(data_imputed$RR)
-dim(data_imputed)
-head(data_imputed)
+summary(data_imputed18682$Time)
+summary(data_imputed18682$RR)
+dim(data_imputed18682)
+head(data_imputed18682)
 ```
 ```{r}
 # save the imputed datasets
@@ -421,7 +519,7 @@ output_file <- paste0("18682_imputed.txt")
 output_file_path <- file.path(directory, output_file)
 
 # Save the processed data
-write.table(data_imputed, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
+write.table(data_imputed18682, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
 ```
 
 ### Participant 49314
@@ -439,15 +537,15 @@ file <- c("49314_advhrv.txt")
 full_file_path <- file.path(directory, file)
   
 # read the CSV file
-data_original <- data.table::fread(full_file_path, sep = "\t")
+data_original49314 <- data.table::fread(full_file_path, sep = "\t")
   
 # change column name
-colnames(data_original)[4] <- "conv_type"
+colnames(data_original49314)[4] <- "conv_type"
 ```
 
 ```{r}
 # apply the helper function to one dataset
-data_filtered <- filtering(data_original) 
+data_filtered49314 <- filtering(data_original49314) 
 ```
 
 ```{r}
@@ -458,27 +556,27 @@ data_filtered <- filtering(data_original)
 
 ```{r}
 # apply the imputation code
-data_imputed <- impute_rr_intervals(data_filtered)
+data_imputed49314 <- impute_RR_intervals(data_filtered49314)
 ```
 
 ```{r}
 # check the summary of filtered data
-summary(data_original$Time)
-summary(data_original$RR)
-dim(data_original)
-head(data_original)
+summary(data_original49314$Time)
+summary(data_original49314$RR)
+dim(data_original49314)
+head(data_original49314)
 
 # check the summary of data before imputation
-summary(data_filtered$Time)
-summary(data_filtered$RR)
-dim(data_filtered)
-head(data_filtered)
+summary(data_filtered49314$Time)
+summary(data_filtered49314$RR)
+dim(data_filtered49314)
+head(data_filtered49314)
 
 # check the summary of data after imputation
-summary(data_imputed$Time)
-summary(data_imputed$RR)
-dim(data_imputed)
-head(data_imputed)
+summary(data_imputed49314$Time)
+summary(data_imputed49314$RR)
+dim(data_imputed49314)
+head(data_imputed49314)
 ```
 
 ```{r}
@@ -489,7 +587,7 @@ output_file <- paste0("49314_imputed.txt")
 output_file_path <- file.path(directory, output_file)
 
 # Save the processed data
-write.table(data_imputed, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
+write.table(data_imputed49314, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
 ```
 
 ### Participant 59503
@@ -520,7 +618,7 @@ data_filtered59503 <- filtering(data_original59503)
 
 ```{r}
 # apply the imputation code
-data_imputed59503 <- impute_rr_intervals(data_filtered59503)
+data_imputed59503 <- impute_RR_intervals(data_filtered59503)
 ```
 
 ```{r}
