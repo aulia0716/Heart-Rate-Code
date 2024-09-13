@@ -9,11 +9,17 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This file contains final code of two parts: Filtering and Imputation for ECG data. The filtering process is handled by the `filtering` function, while the imputation process is managed by the `impute_rr_intervals` function. To run the code, first execute the `filtering` code chunks and apply the filtering function to your datasets. After filtering, you can use the resulting data_filtered as input for the `impute_rr_intervals` steps.
+This file contains final code of two parts: Filtering and Imputation for ECG data. The filtering process is handled by the `filtering` function, while the imputation process is managed by the `impute_RR_intervals` function. To run the code, first execute the `filtering` code chunks and apply the filtering function to your datasets. After filtering, you can use the resulting data_filtered as input for the `impute_rr_intervals` steps.
 
 Please note that the processing time may take a few minutes to complete. Therefore, I recommend running this code for each dataset individually (rather than many datasets simultaneously) to avoid potential errors.
 
 The file name / file path in this code still uses the Dropbox naming format. To apply this code to real participants, you should use the new naming convention format in the O drive. 
+
+Side Notes :
+
+- The imputation code started from the eleventh row. In this case, if there is a time gap from the first to the tenth observation, the code will automatically skip them. This is because the algorithm uses the variance from the previous ten observations. Therefore, the best decision (so far) is to skip the first to tenth observations. 
+
+- The imputation code contains set.seed () function, and I am currently commenting on it. The decision to include the code of set.seed() will follow the discussion results with the statistics expert (Michael Elliott).  
 
 ### Filtering code (Version 4)
 
@@ -149,210 +155,6 @@ filtering <- function(df) {
   return(df)
 }
 
-```
-
-### Imputation Code
-
-```{r}
-library(dplyr)
-
-impute_rr_intervals <- function(df) {
-  
-  # Convert RR and Time from milliseconds to seconds
-  df <- df %>% mutate(RR = RR / 1000, Time = Time / 1000)
-  
-  # Helper function to compute E_10
-  compute_E_10 <- function(df, i) {
-    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
-    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
-  }
-  
-  # Helper function to compute deviation E_r and E_l
-  compute_deviation <- function(RR_j, RR_prev, RR_next) {
-    E_l <- abs((RR_j - RR_prev) / RR_prev)
-    E_r <- abs((RR_next - RR_j) / RR_j)
-    return(list(E_l = E_l, E_r = E_r))
-  }
-  
-  # Iterate over RR intervals
-  i <- 1
-  while (i < nrow(df)) {
-    cat("Iteration:", i, "\n")
-    
-    # Check if the time difference > 1.3 and not equal to RR[i+1]
-    while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
-      
-      # Skip the gap if there are not enough previous RR intervals
-      if (i - 9 <= 0) {
-        cat("Not enough previous RR intervals, skipping gap.\n")
-        break
-      }
-      
-      attempt_count <- 0
-      inserted_data_count <- 0
-      repeat {
-        # Use mean and std deviation from 10 previous observations
-        mu <- mean(df$RR[(i - 9):i])
-        sigma <- sd(df$RR[(i - 9):i])
-        
-        # Generate new RR value
-        # set.seed(999)
-        new_rr <- rnorm(1, mean = mu, sd = sigma)
-        cat("Generated new RR:", new_rr, "\n")
-        
-        # Insert the new RR value to the gap
-        df <- df %>% add_row(RR = new_rr, .before = i + 1)
-        inserted_data_count <- inserted_data_count + 1
-        
-        # Insert new Time to the inserted new RR
-        T_end <- df$Time[i + 2]
-        new_time <- T_end - df$RR[i + 2]
-        df$Time[i + 1] <- new_time
-        cat("New Time value inserted:", new_time, "\n")
-        
-        # Check conditions for the new RR
-        deviations <- compute_deviation(new_rr, df$RR[i - 1], df$RR[i + 1])
-        E_10 <- compute_E_10(df, i)
-        
-        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) &&
-            deviations$E_l <= E_10 && deviations$E_r <= E_10 && new_rr >= 0.3 && new_rr <= 1.3) {
-          # Conditions are met, continue to next gap
-          break
-        }
-        
-        # Conditions not met, retry
-        attempt_count <- attempt_count + 1
-        if (attempt_count > 3) {
-          cat("Exceeded maximum attempts.\n")
-          if (inserted_data_count == 1) {
-            df <- df[-(i + 1), ] # Remove one observation
-          } else {
-            df <- df[-((i + 1):(i + 2)), ] # Remove two observations
-            for (j in 1:4) {
-              E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
-            }
-          }
-          break
-        }
-        
-        cat("Conditions not met, retrying...\n")
-        df <- df[-(i + 1), ] # Remove observation
-        inserted_data_count <- inserted_data_count - 1
-        E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
-      }
-    }
-    i <- i + 1
-  }
-  
-  # Convert RR and Time from seconds back to milliseconds
-  df <- df %>% mutate(RR = RR * 1000, Time = Time * 1000)
-  
-  # Return the dataframe result
-  return(df)
-}
-```
-
-### Imputation version 2
-
-```{r}
-library(dplyr)
-
-impute_rr_intervals <- function(df, max_attempts = 3, sigma_loosen = 1.05) {
-  
-  # Convert RR and Time from milliseconds to seconds
-  df <- df %>% mutate(RR = RR / 1000, Time = Time / 1000)
-  
-  # Helper function to compute E_10
-  compute_E_10 <- function(df, i) {
-    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
-    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
-  }
-  
-  # Helper function to compute deviation E_r and E_l
-  compute_deviation <- function(RR_j, RR_prev, RR_next) {
-    E_l <- abs((RR_j - RR_prev) / RR_prev)
-    E_r <- abs((RR_next - RR_j) / RR_j)
-    return(list(E_l = E_l, E_r = E_r))
-  }
-  
-  # Iterate over RR intervals
-  i <- 1
-  while (i < nrow(df)) {
-    cat("Iteration:", i, "\n")
-    
-    # Check if the time difference > 1.3 and not equal to RR[i+1]
-    while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
-      
-      # Skip the gap if there are not enough previous RR intervals
-      if (i - 9 <= 0) {
-        cat("Not enough previous RR intervals, skipping gap.\n")
-        break
-      }
-      
-      # Compute E_10 once before retry loop
-      E_10 <- compute_E_10(df, i)
-      
-      attempt_count <- 0
-      inserted_data_count <- 0
-      
-      repeat {
-        # Use mean and std deviation from 10 previous observations
-        mu <- mean(df$RR[(i - 9):i])
-        sigma <- sd(df$RR[(i - 9):i]) * sigma_loosen^attempt_count # Loosen sigma with each attempt
-        
-        # Generate new RR value
-        #set.seed(999)
-        new_rr <- rnorm(1, mean = mu, sd = sigma)
-        cat("Generated new RR:", new_rr, "\n")
-        
-        # Insert the new RR value to the gap
-        df <- df %>% add_row(RR = new_rr, .before = i + 1)
-        inserted_data_count <- inserted_data_count + 1
-        
-        # Insert new Time corresponding to the inserted new RR
-        T_end <- df$Time[i + 2]
-        new_time <- T_end - df$RR[i + 2]
-        df$Time[i + 1] <- new_time
-        cat("New Time value inserted:", new_time, "\n")
-        
-        # Check conditions for the new RR
-        deviations <- compute_deviation(new_rr, df$RR[i - 1], df$RR[i + 1])
-        
-        if (!is.na(deviations$E_l) && !is.na(deviations$E_r) &&
-            deviations$E_l <= E_10 && deviations$E_r <= E_10 &&
-            new_rr >= 0.3 && new_rr <= 1.3) {
-          # Conditions are met, continue to the next gap
-          break
-        }
-        
-        # Conditions not met, retry
-        attempt_count <- attempt_count + 1
-        
-        if (attempt_count >= max_attempts) {
-          cat("Exceeded maximum attempts.\n")
-          if (inserted_data_count == 1) {
-            df <- df[-(i + 1), ] # Remove one observation
-          } else {
-            df <- df[-((i + 1):(i + 2)), ] # Remove two observations
-          }
-          break
-        }
-        
-        # Remove the inserted observation and retry
-        df <- df[-(i + 1), ] # Remove the last inserted RR
-        inserted_data_count <- inserted_data_count - 1
-        cat("Retrying with loosened sigma...\n")
-      }
-    }
-    i <- i + 1
-  }
-  
-  # Convert RR and Time from seconds back to milliseconds
-  df <- df %>% mutate(RR = RR * 1000, Time = Time * 1000)
-  
-  # Return the modified dataframe
-  return(df)
-}
 ```
 
 ### Imputation Version 3
@@ -901,128 +703,333 @@ output_file_path <- file.path(directory, output_file)
 write.table(data_imputed19003, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
 ```
 
-
 ### Code Archive
 
-```{r}
-library(dplyr)
+This archive is saved here for recalling purposes (if required).
 
-filtering <- function(df) {
-  
-  # Convert RR to seconds
-  df <- df %>% mutate(RR = RR / 1000)
-  
-  # Helper function to compute E_10
-  compute_E_10 <- function(df, i) {
-    if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
-    sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
-  }
-  
-  # Process the data
-  # set the starting point
-  i <- 1
-  while (i < nrow(df)) {
-    
-    # If RR > 1.3 s, then remove RR_i and its timestamp
-    # this is the new condition
-    if (!is.na(df$RR[i]) && df$RR[i] > 1.3) {
-      df <- df[-i, ]
-      next
-    }
-    
-    # if RR < 0.3s, then do all the merging process
-    if (!is.na(df$RR[i]) && df$RR[i] < 0.3) {
-      if (i + 1 > nrow(df)) break
-      RR_r <- df$RR[i] + df$RR[i + 1]
-      ER_r <- abs((RR_r - df$RR[i]) / df$RR[i])
-      ER_l <- abs((RR_r - df$RR[i - 1]) / df$RR[i - 1])
-      E_tot_r <- if (!is.na(ER_r) && !is.na(ER_l)) ER_r + ER_l else NA
-      E_10 <- compute_E_10(df, i)
-      
-      # If RR_r < 1.3s and ER_l <= E_10 and ER_r <= E_10 then 
-      # do right merge, replace RR_i+1 by RR_r and delete RR_i and its timestamp
-      if (!is.na(RR_r) && !is.na(ER_r) && !is.na(ER_l) && !is.na(E_10) && RR_r < 1.3 && ER_l <= E_10 && ER_r <= E_10) {
-        df$RR[i + 1] <- RR_r
-        df <- df[-i, ]
-        next
-      } else {
-        if (i - 1 < 1) break
-        RR_l <- df$RR[i] + df$RR[i - 1]
-        EL_r <- abs((RR_l - df$RR[i]) / df$RR[i])
-        EL_l <- abs((RR_l - df$RR[i - 1]) / df$RR[i - 1])
-        E_tot_l <- if (!is.na(EL_r) && !is.na(EL_l)) EL_r + EL_l else NA
-        E_10_prev <- compute_E_10(df, i - 1)
-        
-        # If RR_l < 1.3 s and EL_l <= E10 and EL_r <= E_10 then 
-        # left merge, replace RR_i by RR_l and delete RR_i-1 and its timestamp
-        if (!is.na(RR_l) && !is.na(EL_l) && !is.na(EL_r) && !is.na(E_10_prev) && RR_l < 1.3 && EL_l <= E_10_prev && EL_r <= E_10_prev) {
-          df$RR[i - 1] <- RR_l
-          df <- df[-i, ]
-          next
-        } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l > 1.3) {
-          if (i + 1 <= nrow(df)) { # Else if RR_r > 1.3 and RR_l > 1.3, then Delete both {RR}_i and {RR}_{i+1}
-            df <- df[-c(i, i + 1), ]
-          } else {
-            df <- df[-i, ]
-          }
-          next
-        } 
-        # Else if RR_r < 1.3 and RR_l > 1.3 then Replace {RR}_{i+1} by {RR}_r and delete {RR}_i and its timestamp
-        else if (!is.na(RR_r) && !is.na(RR_l) && RR_r < 1.3 && RR_l > 1.3) {
-          df$RR[i + 1] <- RR_r 
-          df <- df[-i, ]
-          next
-        } 
-        # Else if RR_r > 1.3s and RR_l < 1.3s then Replace {RR}_{i-1} by {RR}_l and delete {RR}_i and its timestamp
-        else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l < 1.3) {
-          df$RR[i - 1] <- RR_l 
-          df <- df[-i, ]
-          next
-        } 
-        # Else if both {RR}_l and {RR}_r<\ 1.3\ s but errors {Etot}_r and {Etot}_l are higher than 0.4, then keep the one with smaller error
-        else if (!is.na(RR_l) && !is.na(RR_r) && !is.na(E_tot_r) && !is.na(E_tot_l) && RR_l < 1.3 && RR_r < 1.3 && E_tot_r > 0.4 
-                 && E_tot_l > 0.4) {
-          if (E_tot_r < E_tot_l) { 
-            df$RR[i + 1] <- RR_r
-            df <- df[-i, ]
-          } else {
-            df$RR[i - 1] <- RR_l
-            df <- df[-i, ]
-          }
-          next
-        }
-      }
-    }
-    # restate the iteration
-    i <- i + 1
-  }
-  
-  # Handle the last row
-  # if the RR < 0.3
-  while (nrow(df) > 0 && df$RR[nrow(df)] < 0.3) {
-    
-    # compute RR left
-    RR_l <- df$RR[nrow(df)] + df$RR[nrow(df)-1]
-    
-    # if RR_l > 1.3 s
-    if (RR_l > 1.3) {
-      df <- df[-nrow(df), ] # remove the row
-      next
-    } else {
-      df$RR[nrow(df)-1] <- RR_l # otherwise, do left merge
-      df <- df[-nrow(df), ]
-    }
-  }
-  
-  # if RR > 1.3
-  if (nrow(df) > 0 && df$RR[nrow(df)] > 1.3) {
-    df <- df[-nrow(df), ] # remove the row
-  }
-  
-  # Convert back RR to milliseconds
-  df <- df %>% mutate(RR = RR * 1000)
-  
-  # Return the dataframe result
-  return(df)
-}
+```{r}
+# library(dplyr)
+# 
+# filtering <- function(df) {
+#   
+#   # Convert RR to seconds
+#   df <- df %>% mutate(RR = RR / 1000)
+#   
+#   # Helper function to compute E_10
+#   compute_E_10 <- function(df, i) {
+#     if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+#     sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+#   }
+#   
+#   # Process the data
+#   # set the starting point
+#   i <- 1
+#   while (i < nrow(df)) {
+#     
+#     # If RR > 1.3 s, then remove RR_i and its timestamp
+#     # this is the new condition
+#     if (!is.na(df$RR[i]) && df$RR[i] > 1.3) {
+#       df <- df[-i, ]
+#       next
+#     }
+#     
+#     # if RR < 0.3s, then do all the merging process
+#     if (!is.na(df$RR[i]) && df$RR[i] < 0.3) {
+#       if (i + 1 > nrow(df)) break
+#       RR_r <- df$RR[i] + df$RR[i + 1]
+#       ER_r <- abs((RR_r - df$RR[i]) / df$RR[i])
+#       ER_l <- abs((RR_r - df$RR[i - 1]) / df$RR[i - 1])
+#       E_tot_r <- if (!is.na(ER_r) && !is.na(ER_l)) ER_r + ER_l else NA
+#       E_10 <- compute_E_10(df, i)
+#       
+#       # If RR_r < 1.3s and ER_l <= E_10 and ER_r <= E_10 then 
+#       # do right merge, replace RR_i+1 by RR_r and delete RR_i and its timestamp
+#       if (!is.na(RR_r) && !is.na(ER_r) && !is.na(ER_l) && !is.na(E_10) && RR_r < 1.3 && ER_l <= E_10 && ER_r <= E_10) {
+#         df$RR[i + 1] <- RR_r
+#         df <- df[-i, ]
+#         next
+#       } else {
+#         if (i - 1 < 1) break
+#         RR_l <- df$RR[i] + df$RR[i - 1]
+#         EL_r <- abs((RR_l - df$RR[i]) / df$RR[i])
+#         EL_l <- abs((RR_l - df$RR[i - 1]) / df$RR[i - 1])
+#         E_tot_l <- if (!is.na(EL_r) && !is.na(EL_l)) EL_r + EL_l else NA
+#         E_10_prev <- compute_E_10(df, i - 1)
+#         
+#         # If RR_l < 1.3 s and EL_l <= E10 and EL_r <= E_10 then 
+#         # left merge, replace RR_i by RR_l and delete RR_i-1 and its timestamp
+#         if (!is.na(RR_l) && !is.na(EL_l) && !is.na(EL_r) && !is.na(E_10_prev) && RR_l < 1.3 && EL_l <= E_10_prev && EL_r <= E_10_prev) {
+#           df$RR[i - 1] <- RR_l
+#           df <- df[-i, ]
+#           next
+#         } else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l > 1.3) {
+#           if (i + 1 <= nrow(df)) { # Else if RR_r > 1.3 and RR_l > 1.3, then Delete both {RR}_i and {RR}_{i+1}
+#             df <- df[-c(i, i + 1), ]
+#           } else {
+#             df <- df[-i, ]
+#           }
+#           next
+#         } 
+#         # Else if RR_r < 1.3 and RR_l > 1.3 then Replace {RR}_{i+1} by {RR}_r and delete {RR}_i and its timestamp
+#         else if (!is.na(RR_r) && !is.na(RR_l) && RR_r < 1.3 && RR_l > 1.3) {
+#           df$RR[i + 1] <- RR_r 
+#           df <- df[-i, ]
+#           next
+#         } 
+#         # Else if RR_r > 1.3s and RR_l < 1.3s then Replace {RR}_{i-1} by {RR}_l and delete {RR}_i and its timestamp
+#         else if (!is.na(RR_r) && !is.na(RR_l) && RR_r > 1.3 && RR_l < 1.3) {
+#           df$RR[i - 1] <- RR_l 
+#           df <- df[-i, ]
+#           next
+#         } 
+#         # Else if both {RR}_l and {RR}_r<\ 1.3\ s but errors {Etot}_r and {Etot}_l are higher than 0.4, then keep the one with smaller error
+#         else if (!is.na(RR_l) && !is.na(RR_r) && !is.na(E_tot_r) && !is.na(E_tot_l) && RR_l < 1.3 && RR_r < 1.3 && E_tot_r > 0.4 
+#                  && E_tot_l > 0.4) {
+#           if (E_tot_r < E_tot_l) { 
+#             df$RR[i + 1] <- RR_r
+#             df <- df[-i, ]
+#           } else {
+#             df$RR[i - 1] <- RR_l
+#             df <- df[-i, ]
+#           }
+#           next
+#         }
+#       }
+#     }
+#     # restate the iteration
+#     i <- i + 1
+#   }
+#   
+#   # Handle the last row
+#   # if the RR < 0.3
+#   while (nrow(df) > 0 && df$RR[nrow(df)] < 0.3) {
+#     
+#     # compute RR left
+#     RR_l <- df$RR[nrow(df)] + df$RR[nrow(df)-1]
+#     
+#     # if RR_l > 1.3 s
+#     if (RR_l > 1.3) {
+#       df <- df[-nrow(df), ] # remove the row
+#       next
+#     } else {
+#       df$RR[nrow(df)-1] <- RR_l # otherwise, do left merge
+#       df <- df[-nrow(df), ]
+#     }
+#   }
+#   
+#   # if RR > 1.3
+#   if (nrow(df) > 0 && df$RR[nrow(df)] > 1.3) {
+#     df <- df[-nrow(df), ] # remove the row
+#   }
+#   
+#   # Convert back RR to milliseconds
+#   df <- df %>% mutate(RR = RR * 1000)
+#   
+#   # Return the dataframe result
+#   return(df)
+# }
+```
+
+### Imputation Code
+
+```{r}
+# library(dplyr)
+# 
+# impute_rr_intervals <- function(df) {
+#   
+#   # Convert RR and Time from milliseconds to seconds
+#   df <- df %>% mutate(RR = RR / 1000, Time = Time / 1000)
+#   
+#   # Helper function to compute E_10
+#   compute_E_10 <- function(df, i) {
+#     if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+#     sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+#   }
+#   
+#   # Helper function to compute deviation E_r and E_l
+#   compute_deviation <- function(RR_j, RR_prev, RR_next) {
+#     E_l <- abs((RR_j - RR_prev) / RR_prev)
+#     E_r <- abs((RR_next - RR_j) / RR_j)
+#     return(list(E_l = E_l, E_r = E_r))
+#   }
+#   
+#   # Iterate over RR intervals
+#   i <- 1
+#   while (i < nrow(df)) {
+#     cat("Iteration:", i, "\n")
+#     
+#     # Check if the time difference > 1.3 and not equal to RR[i+1]
+#     while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
+#       
+#       # Skip the gap if there are not enough previous RR intervals
+#       if (i - 9 <= 0) {
+#         cat("Not enough previous RR intervals, skipping gap.\n")
+#         break
+#       }
+#       
+#       attempt_count <- 0
+#       inserted_data_count <- 0
+#       repeat {
+#         # Use mean and std deviation from 10 previous observations
+#         mu <- mean(df$RR[(i - 9):i])
+#         sigma <- sd(df$RR[(i - 9):i])
+#         
+#         # Generate new RR value
+#         # set.seed(999)
+#         new_rr <- rnorm(1, mean = mu, sd = sigma)
+#         cat("Generated new RR:", new_rr, "\n")
+#         
+#         # Insert the new RR value to the gap
+#         df <- df %>% add_row(RR = new_rr, .before = i + 1)
+#         inserted_data_count <- inserted_data_count + 1
+#         
+#         # Insert new Time to the inserted new RR
+#         T_end <- df$Time[i + 2]
+#         new_time <- T_end - df$RR[i + 2]
+#         df$Time[i + 1] <- new_time
+#         cat("New Time value inserted:", new_time, "\n")
+#         
+#         # Check conditions for the new RR
+#         deviations <- compute_deviation(new_rr, df$RR[i - 1], df$RR[i + 1])
+#         E_10 <- compute_E_10(df, i)
+#         
+#         if (!is.na(deviations$E_l) && !is.na(deviations$E_r) && !is.na(E_10) &&
+#             deviations$E_l <= E_10 && deviations$E_r <= E_10 && new_rr >= 0.3 && new_rr <= 1.3) {
+#           # Conditions are met, continue to next gap
+#           break
+#         }
+#         
+#         # Conditions not met, retry
+#         attempt_count <- attempt_count + 1
+#         if (attempt_count > 3) {
+#           cat("Exceeded maximum attempts.\n")
+#           if (inserted_data_count == 1) {
+#             df <- df[-(i + 1), ] # Remove one observation
+#           } else {
+#             df <- df[-((i + 1):(i + 2)), ] # Remove two observations
+#             for (j in 1:4) {
+#               E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
+#             }
+#           }
+#           break
+#         }
+#         
+#         cat("Conditions not met, retrying...\n")
+#         df <- df[-(i + 1), ] # Remove observation
+#         inserted_data_count <- inserted_data_count - 1
+#         E_10 <- E_10 * 1.05 # Loosen the requirements by 5%
+#       }
+#     }
+#     i <- i + 1
+#   }
+#   
+#   # Convert RR and Time from seconds back to milliseconds
+#   df <- df %>% mutate(RR = RR * 1000, Time = Time * 1000)
+#   
+#   # Return the dataframe result
+#   return(df)
+# }
+```
+
+### Imputation version 2
+
+```{r}
+# library(dplyr)
+# 
+# impute_rr_intervals <- function(df, max_attempts = 3, sigma_loosen = 1.05) {
+#   
+#   # Convert RR and Time from milliseconds to seconds
+#   df <- df %>% mutate(RR = RR / 1000, Time = Time / 1000)
+#   
+#   # Helper function to compute E_10
+#   compute_E_10 <- function(df, i) {
+#     if (i + 10 > nrow(df) || i - 1 < 1) return(NA)
+#     sum(abs((df$RR[i:(i + 10)] - df$RR[(i - 1):(i + 9)]) / df$RR[(i - 1):(i + 9)])) / 10
+#   }
+#   
+#   # Helper function to compute deviation E_r and E_l
+#   compute_deviation <- function(RR_j, RR_prev, RR_next) {
+#     E_l <- abs((RR_j - RR_prev) / RR_prev)
+#     E_r <- abs((RR_next - RR_j) / RR_j)
+#     return(list(E_l = E_l, E_r = E_r))
+#   }
+#   
+#   # Iterate over RR intervals
+#   i <- 1
+#   while (i < nrow(df)) {
+#     cat("Iteration:", i, "\n")
+#     
+#     # Check if the time difference > 1.3 and not equal to RR[i+1]
+#     while (!is.na(df$Time[i]) && !is.na(df$Time[i + 1]) && (df$Time[i + 1] - df$Time[i]) > 1.3) {
+#       
+#       # Skip the gap if there are not enough previous RR intervals
+#       if (i - 9 <= 0) {
+#         cat("Not enough previous RR intervals, skipping gap.\n")
+#         break
+#       }
+#       
+#       # Compute E_10 once before retry loop
+#       E_10 <- compute_E_10(df, i)
+#       
+#       attempt_count <- 0
+#       inserted_data_count <- 0
+#       
+#       repeat {
+#         # Use mean and std deviation from 10 previous observations
+#         mu <- mean(df$RR[(i - 9):i])
+#         sigma <- sd(df$RR[(i - 9):i]) * sigma_loosen^attempt_count # Loosen sigma with each attempt
+#         
+#         # Generate new RR value
+#         #set.seed(999)
+#         new_rr <- rnorm(1, mean = mu, sd = sigma)
+#         cat("Generated new RR:", new_rr, "\n")
+#         
+#         # Insert the new RR value to the gap
+#         df <- df %>% add_row(RR = new_rr, .before = i + 1)
+#         inserted_data_count <- inserted_data_count + 1
+#         
+#         # Insert new Time corresponding to the inserted new RR
+#         T_end <- df$Time[i + 2]
+#         new_time <- T_end - df$RR[i + 2]
+#         df$Time[i + 1] <- new_time
+#         cat("New Time value inserted:", new_time, "\n")
+#         
+#         # Check conditions for the new RR
+#         deviations <- compute_deviation(new_rr, df$RR[i - 1], df$RR[i + 1])
+#         
+#         if (!is.na(deviations$E_l) && !is.na(deviations$E_r) &&
+#             deviations$E_l <= E_10 && deviations$E_r <= E_10 &&
+#             new_rr >= 0.3 && new_rr <= 1.3) {
+#           # Conditions are met, continue to the next gap
+#           break
+#         }
+#         
+#         # Conditions not met, retry
+#         attempt_count <- attempt_count + 1
+#         
+#         if (attempt_count >= max_attempts) {
+#           cat("Exceeded maximum attempts.\n")
+#           if (inserted_data_count == 1) {
+#             df <- df[-(i + 1), ] # Remove one observation
+#           } else {
+#             df <- df[-((i + 1):(i + 2)), ] # Remove two observations
+#           }
+#           break
+#         }
+#         
+#         # Remove the inserted observation and retry
+#         df <- df[-(i + 1), ] # Remove the last inserted RR
+#         inserted_data_count <- inserted_data_count - 1
+#         cat("Retrying with loosened sigma...\n")
+#       }
+#     }
+#     i <- i + 1
+#   }
+#   
+#   # Convert RR and Time from seconds back to milliseconds
+#   df <- df %>% mutate(RR = RR * 1000, Time = Time * 1000)
+#   
+#   # Return the modified dataframe
+#   return(df)
+# }
 ```
