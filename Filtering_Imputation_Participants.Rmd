@@ -154,7 +154,6 @@ filtering <- function(df) {
   
   return(df)
 }
-
 ```
 
 ### Imputation Version 3
@@ -206,7 +205,7 @@ impute_RR_intervals <- function(df) {
         sigma <- sd(df$RR[(i - 9):i])
         
         # Generate new RR value
-        set.seed(999)
+        # set.seed(999)
         new_RR <- rnorm(1, mean = mu, sd = sigma)
         cat("Generated new RR:", new_RR, "\n")
         
@@ -483,7 +482,7 @@ data_filtered85321 <- filtering(data_original85321)
 
 ```{r}
 # apply the imputation code
-data_imputed85321 <- impute_rr_intervals(data_filtered85321)
+data_imputed85321 <- impute_RR_intervals(data_filtered85321)
 ```
 
 ```{r}
@@ -545,7 +544,7 @@ data_filtered86760 <- filtering(data_original86760)
 
 ```{r}
 # apply the imputation code
-data_imputed86760 <- impute_rr_intervals(data_filtered86760)
+data_imputed86760 <- impute_RR_intervals(data_filtered86760)
 ```
 
 ```{r}
@@ -607,7 +606,7 @@ data_filtered43465 <- filtering(data_original43465)
 
 ```{r}
 # apply the imputation code
-data_imputed43465 <- impute_rr_intervals(data_filtered43465)
+data_imputed43465 <- impute_RR_intervals(data_filtered43465)
 ```
 
 ```{r}
@@ -669,7 +668,7 @@ data_filtered19003 <- filtering(data_original19003)
 
 ```{r}
 # apply the imputation code
-data_imputed19003 <- impute_rr_intervals(data_filtered19003)
+data_imputed19003 <- impute_RR_intervals(data_filtered19003)
 ```
 
 ```{r}
@@ -702,6 +701,22 @@ output_file_path <- file.path(directory, output_file)
 # Save the processed data
 write.table(data_imputed19003, file = output_file_path, sep = "\t", row.names = FALSE, col.names = TRUE)
 ```
+
+### Testing Result (September 9 - 13, 2024)
+
+I recently tried to run the ECG filtering and imputation with set.seed(). 
+
+This is the summary list of Respondents' ID. 
+
+Respondents' ID which the code worked well : 18682, 49314, 85321, 86760. 
+
+Respondents' ID which the code did not converge: 59503. 
+
+### Next Steps 
+
+1. Update the imputation related question to KP. 
+
+2. The code is has a large function and has a relatively long computation process for a large data set. My suggestion is to do editing or debugging of the code so that the code can be more simple and works efficiently. 
 
 ### Code Archive
 
